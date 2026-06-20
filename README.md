@@ -60,7 +60,8 @@ Implement and stabilize the transport-independent `chat` crate. Keep the API
 small, verify its contracts through tests, and revise abstractions only when an
 actual adapter exposes a problem.
 
-Status: implemented; toolchain verification and API stabilization remain.
+Status: implemented and verified with Rust 1.96 formatting, Clippy, tests, and
+documentation builds; API stabilization remains.
 
 ### 2. SQLite persistence
 
@@ -103,10 +104,11 @@ review, compatibility tests, and reproducible release builds.
 
 The next milestone is SQLite persistence. Network and WebSocket work should not
 begin until the core storage contracts have been exercised by a real adapter.
+The accepted implementation decisions are recorded in
+[`docs/sqlite-persistence.md`](docs/sqlite-persistence.md).
 
 1. Run formatting, tests, Clippy, and documentation builds with Rust 1.96.
-2. Confirm the SQLite library and timestamp representation with a small focused
-   implementation spike.
+2. Add Tokio and SQLx with bundled SQLite and embedded migrations.
 3. Add an initial migration for users, conversations, memberships, and messages,
    including foreign keys, uniqueness rules, and query indexes.
 4. Implement the smallest write capabilities first, using transactions where a
