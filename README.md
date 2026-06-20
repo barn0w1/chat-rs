@@ -110,8 +110,11 @@ The SQLite persistence implementation is complete and verified. Its decisions
 are recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md).
 
-The next milestone is the server foundation. Before adding application
-endpoints or WebSocket protocol messages:
+The next milestone is the server foundation. The proposed implementation plan
+is recorded in
+[`docs/server-foundation.md`](docs/server-foundation.md).
+
+Before adding application endpoints or WebSocket protocol messages:
 
 1. Define configuration for the listen address and database path.
 2. Establish the Tokio process lifecycle and a thin composition root.
@@ -121,10 +124,10 @@ endpoints or WebSocket protocol messages:
 6. Verify startup, shutdown, and configuration behavior without introducing the
    authentication or WebSocket protocol yet.
 
-This milestone is complete when every storage capability required by `chat`
-has a tested SQLite implementation, a fresh database can be migrated without
-manual steps, and all workspace checks pass. It deliberately excludes HTTP,
-WebSocket, and authentication work.
+This milestone is complete when the server starts with documented defaults,
+reports liveness and readiness, shuts down cleanly on supported signals, closes
+SQLite deterministically, and passes the full workspace checks. It deliberately
+excludes authentication, chat endpoints, and WebSocket behavior.
 
 ## Development
 
