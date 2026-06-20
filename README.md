@@ -81,10 +81,11 @@ configuration, structured logging, health endpoints, graceful shutdown, and a
 thin composition root. The executable should assemble the core use cases and
 infrastructure without moving application rules into HTTP handlers.
 
-Status: implemented. The server reads validated environment configuration,
-initializes structured tracing, opens and migrates SQLite before binding,
-exposes liveness and readiness probes, and closes the database pool after Axum
-graceful shutdown. Local Rust verification is pending.
+Status: implemented and locally verified with Rust 1.96. The server reads
+validated environment configuration, initializes structured tracing, opens and
+migrates SQLite before binding, exposes liveness and readiness probes, and
+closes the database pool after Axum graceful shutdown. Check, Clippy, all 40
+tests, release build, health probes, and graceful SIGINT shutdown pass.
 
 ### 4. Authentication and protocol
 
@@ -111,9 +112,10 @@ review, compatibility tests, and reproducible release builds.
 
 ## Current Focus
 
-The core application and SQLite persistence are implemented and verified. The
-server foundation is implemented and awaits local Rust and signal verification.
-The implementation decisions are recorded in
+The core application, SQLite persistence, and server foundation are implemented
+and verified. Formatting and a manual SIGTERM check remain before closing the
+server-foundation verification record. The implementation decisions are
+recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md) and
 [`docs/server-foundation.md`](docs/server-foundation.md).
 

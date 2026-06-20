@@ -1,6 +1,6 @@
 # Server Foundation Plan
 
-Status: implemented; local Rust verification pending
+Status: implemented and verified; formatting and manual SIGTERM checks remain
 Date: 2026-06-21
 
 ## Scope
@@ -406,8 +406,10 @@ order.
 - manually verify Ctrl-C and SIGTERM
 - update README milestone status and operational examples
 
-Result: documentation and operational examples are updated. The Rust checks and
-manual signal verification remain to be run in an environment with Rust 1.96.
+Result: documentation and operational examples are updated. Rust 1.96 check,
+Clippy, workspace tests, release build, health probes, and graceful SIGINT
+shutdown have been verified locally. Formatting and manual SIGTERM checks
+remain.
 
 ## Acceptance Criteria
 
