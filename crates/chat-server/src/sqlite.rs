@@ -49,6 +49,11 @@ impl SqliteStore {
     pub async fn close(&self) {
         self.pool.close().await;
     }
+
+    pub(crate) async fn check_readiness(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
 }
 
 /// An error encountered while opening and preparing a SQLite store.

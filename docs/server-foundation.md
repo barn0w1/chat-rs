@@ -1,7 +1,7 @@
 # Server Foundation Plan
 
-Status: proposed for the next implementation milestone
-Date: 2026-06-20
+Status: implemented; local Rust verification pending
+Date: 2026-06-21
 
 ## Scope
 
@@ -353,9 +353,9 @@ cargo doc --workspace --no-deps
 cargo build --workspace --release --locked
 ```
 
-## Implementation Slices
+## Implementation Record
 
-Implement this milestone as small reviewable slices.
+The milestone was implemented as the following reviewable slices.
 
 ### Slice 1: Dependencies and configuration
 
@@ -364,8 +364,8 @@ Implement this milestone as small reviewable slices.
 - document environment variables
 - add pure configuration tests
 
-Completion: configuration has no I/O beyond reading a snapshot and all parsing
-branches are tested.
+Result: configuration has no I/O beyond reading a snapshot and its parsing
+branches have focused unit tests.
 
 ### Slice 2: Diagnostics
 
@@ -374,8 +374,8 @@ branches are tested.
 - add structured startup events
 - add HTTP `TraceLayer` without header recording
 
-Completion: startup diagnostics are visible, filter errors fail clearly, and
-tests do not contend for a global subscriber.
+Result: startup diagnostics are structured, filter errors fail clearly, and
+tests construct filters without installing a global subscriber.
 
 ### Slice 3: Router and health
 
@@ -384,7 +384,7 @@ tests do not contend for a global subscriber.
 - add the SQLite readiness operation
 - test the router through Tower `oneshot`
 
-Completion: all route/status contracts pass without a live TCP listener.
+Result: route and status contracts are covered without a live TCP listener.
 
 ### Slice 4: Lifecycle and shutdown
 
@@ -395,7 +395,7 @@ Completion: all route/status contracts pass without a live TCP listener.
 - return typed errors and meaningful process exit status
 - add lifecycle tests
 
-Completion: normal and failure startup paths are deterministic, shutdown is
+Result: normal and failure startup paths are deterministic, shutdown is
 testable without real signals, and runtime resources close in the documented
 order.
 
@@ -406,8 +406,8 @@ order.
 - manually verify Ctrl-C and SIGTERM
 - update README milestone status and operational examples
 
-Completion: the binary is a verified operational shell around the existing
-SQLite-backed application, with no chat protocol surface added.
+Result: documentation and operational examples are updated. The Rust checks and
+manual signal verification remain to be run in an environment with Rust 1.96.
 
 ## Acceptance Criteria
 
