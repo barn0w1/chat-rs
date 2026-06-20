@@ -69,7 +69,7 @@ mod tests {
     fn explicit_filter_is_parsed_strictly() {
         assert!(filter_from(Some(OsString::from("chat_server=debug"))).is_ok());
         assert!(matches!(
-            filter_from(Some(OsString::from("not a filter"))),
+            filter_from(Some(OsString::from("chat_server=not-a-level"))),
             Err(TelemetryError::InvalidFilter(_))
         ));
     }
