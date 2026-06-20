@@ -81,6 +81,13 @@ configuration, structured logging, health endpoints, graceful shutdown, and a
 thin composition root. The executable should assemble the core use cases and
 infrastructure without moving application rules into HTTP handlers.
 
+Status: implemented and locally verified with Rust 1.96. The server reads
+validated environment configuration, initializes structured tracing, opens and
+migrates SQLite before binding, exposes liveness and readiness probes, and
+closes the database pool after Axum graceful shutdown. Check, Clippy, all 40
+tests, release build, formatting, health probes, and graceful SIGINT and SIGTERM
+shutdown pass.
+
 ### 4. Authentication and protocol
 
 Define the same-origin browser authentication flow and a versioned wire
@@ -106,28 +113,15 @@ review, compatibility tests, and reproducible release builds.
 
 ## Current Focus
 
-The SQLite persistence implementation is complete and verified. Its decisions
-are recorded in
-[`docs/sqlite-persistence.md`](docs/sqlite-persistence.md).
-
-The next milestone is the server foundation. The proposed implementation plan
-is recorded in
+The core application, SQLite persistence, and server foundation are implemented
+and verified. The implementation decisions are recorded in
+[`docs/sqlite-persistence.md`](docs/sqlite-persistence.md) and
 [`docs/server-foundation.md`](docs/server-foundation.md).
 
-Before adding application endpoints or WebSocket protocol messages:
-
-1. Define configuration for the listen address and database path.
-2. Establish the Tokio process lifecycle and a thin composition root.
-3. Initialize structured tracing before opening runtime resources.
-4. Open and migrate SQLite during startup, failing startup on errors.
-5. Add health handling and graceful shutdown with deterministic resource cleanup.
-6. Verify startup, shutdown, and configuration behavior without introducing the
-   authentication or WebSocket protocol yet.
-
-This milestone is complete when the server starts with documented defaults,
-reports liveness and readiness, shuts down cleanly on supported signals, closes
-SQLite deterministically, and passes the full workspace checks. It deliberately
-excludes authentication, chat endpoints, and WebSocket behavior.
+After verification, the next planning milestone is authentication and the
+versioned application protocol. That work should establish identities,
+authorization boundaries, command and result envelopes, reconnect semantics,
+and error mapping before adding WebSocket connection management.
 
 ## Development
 
@@ -139,3 +133,26 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo doc --workspace --no-deps
 ```
+
+Run the server with loopback and file-database defaults:
+
+```sh
+cargo run -p chat-server
+```
+
+Configuration is provided through `CHAT_LISTEN_ADDR`, `CHAT_DATABASE_PATH`,
+and `RUST_LOG`. For example:
+
+```sh
+CHAT_LISTEN_ADDR=127.0.0.1:4000 \
+CHAT_DATABASE_PATH=var/chat.sqlite3 \
+RUST_LOG=chat_server=debug,tower_http=info \
+cargo run -p chat-server
+```
+
+The operational probes are `GET /health/live` and `GET /health/ready`; both
+return `204 No Content` when the process is ready.
+
+## License
+
+No license is granted for this repository.
