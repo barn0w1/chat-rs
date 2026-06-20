@@ -1,6 +1,6 @@
 # SQLite Persistence Plan
 
-Status: accepted for the first `chat-server` persistence implementation
+Status: implemented; Rust toolchain verification pending
 Date: 2026-06-20
 
 ## Scope
@@ -139,11 +139,56 @@ CREATE INDEX messages_by_conversation
     ON messages (conversation_id, id DESC);
 ```
 
-`AUTOINCREMENT` is a deliberate exception to SQLite's general recommendation to
-avoid it. These IDs are durable external identities, and message IDs are also
-cursors. Reusing the highest deleted ID could make stale client state refer to a
-different entity. The extra sequence bookkeeping is acceptable for this
-invariant.
+### Identifier allocation
+
+Use `INTEGER PRIMARY KEY AUTOINCREMENT` for `users`, `conversations`, and
+`messages`.
+
+This is a deliberate exception to SQLite's general recommendation to avoid
+`AUTOINCREMENT` unless its stronger guarantee is required. The core treats all
+three IDs as durable identities that can cross the persistence boundary. A
+previously committed ID must not later identify a different entity, even after
+the row with the greatest ID has been physically deleted. `MessageId` also
+defines message order and is used as an exclusive pagination cursor, so a newly
+inserted message must not move backwards in that order after deletion.
+
+Plain `INTEGER PRIMARY KEY` allocates an ID automatically and is the cheaper
+default, but it can reuse a deleted ROWID and can stop increasing when the row
+with the greatest ROWID is deleted. Avoiding physical deletion would make that
+unlikely, but identifier correctness should not depend on all future deletion,
+retention, and migration code preserving tombstone rows forever.
+
+The alternatives do not improve this single-node SQLite design:
+
+| Alternative | Reason not selected |
+| --- | --- |
+| Plain `INTEGER PRIMARY KEY` | Does not guarantee non-reuse after deletion |
+| Application sequence table | Reimplements `sqlite_sequence` with similar serialization and write cost |
+| Random positive 63-bit integer | Needs collision handling and cannot directly define message order |
+| UUIDv7 or ULID | Adds wider keys, application-side generation, and a separate ordering contract without a current distributed-writer requirement |
+| Snowflake-style ID | Adds clock and node-ID failure modes that a single SQLite writer does not have |
+| Public ID plus internal sequence | Adds two identifiers and indexes per entity before opaque public IDs are required |
+
+The accepted cost is an update to SQLite's `sqlite_sequence` state when an
+insert advances a table's maximum ROWID. This adds work to inserts, especially
+to the high-volume `messages` table, but does not add a new concurrency limit:
+SQLite already serializes writers. Measure this in realistic load tests before
+reconsidering the decision.
+
+The guarantee has precise limits:
+
+- it applies to automatically generated ROWIDs from committed transactions in
+  the same table and database
+- it guarantees increasing, never-before-committed values, not gapless values
+- rolled-back or failed insert attempts may leave gaps or have values reused
+- restoring an older database backup restores the older sequence state
+- manually supplying an ID or modifying `sqlite_sequence` can defeat the
+  allocation policy
+
+Accordingly, adapter inserts never bind an ID, normal application code never
+modifies `sqlite_sequence`, and migrations that import or rebuild identity
+tables must preserve each table's high-water mark. External JSON represents IDs
+as decimal strings to avoid JavaScript integer precision loss.
 
 The database enforces structural integrity. Text validation remains owned by
 `chat`; duplicating all Unicode and whitespace rules in SQL would create two

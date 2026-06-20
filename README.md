@@ -70,6 +70,10 @@ capabilities in `chat-server`. Mutating operations that span multiple records
 must be transactional. Integration tests will run the same behavioral contracts
 against a real temporary database.
 
+Status: implemented with SQLx, bundled SQLite, embedded migrations, atomic write
+transactions, and real-file integration tests; Rust toolchain verification is
+required after dependency lockfile generation.
+
 ### 3. Server foundation
 
 Establish the production async runtime and server lifecycle, including
@@ -100,24 +104,19 @@ the application.
 Add resource limits, observability, migration and backup procedures, security
 review, compatibility tests, and reproducible release builds.
 
-## Near-Term Plan
+## Current Focus
 
-The next milestone is SQLite persistence. Network and WebSocket work should not
-begin until the core storage contracts have been exercised by a real adapter.
-The accepted implementation decisions are recorded in
+The SQLite persistence implementation is complete. Its implementation decisions
+are recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md).
 
-1. Run formatting, tests, Clippy, and documentation builds with Rust 1.96.
-2. Add Tokio and SQLx with bundled SQLite and embedded migrations.
-3. Add an initial migration for users, conversations, memberships, and messages,
-   including foreign keys, uniqueness rules, and query indexes.
-4. Implement the smallest write capabilities first, using transactions where a
-   use case changes multiple records.
-5. Implement read capabilities and cursor-based message pagination.
-6. Add integration tests covering fresh migrations, constraint mapping,
-   transactions, ordering, pagination, and persistence across reconnection.
-7. Keep `chat-server/src/main.rs` thin and expose infrastructure from a server
-   library module as it grows.
+Before server transport work begins:
+
+1. Generate and commit the updated `Cargo.lock` with Rust 1.96.
+2. Run formatting, tests, Clippy, documentation, and a release build.
+3. Resolve any toolchain-specific diagnostics without changing the documented
+   persistence contracts.
+4. Begin the server foundation milestone only after these checks pass.
 
 This milestone is complete when every storage capability required by `chat`
 has a tested SQLite implementation, a fresh database can be migrated without

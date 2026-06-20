@@ -11,6 +11,13 @@ repository = "https://github.com/barn0w1/chat-rs"
 
 [workspace.dependencies]
 chat = { path = "crates/chat" }
+sqlx = { version = "0.9.0", default-features = false, features = [
+    "macros",
+    "migrate",
+    "runtime-tokio",
+    "sqlite-bundled",
+] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
