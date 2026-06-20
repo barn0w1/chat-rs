@@ -1,6 +1,6 @@
 # SQLite Persistence Plan
 
-Status: implemented; Rust toolchain verification pending
+Status: implemented and verified with Rust 1.96
 Date: 2026-06-20
 
 ## Scope

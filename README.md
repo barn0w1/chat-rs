@@ -70,9 +70,9 @@ capabilities in `chat-server`. Mutating operations that span multiple records
 must be transactional. Integration tests will run the same behavioral contracts
 against a real temporary database.
 
-Status: implemented with SQLx, bundled SQLite, embedded migrations, atomic write
-transactions, and real-file integration tests; Rust toolchain verification is
-required after dependency lockfile generation.
+Status: implemented and verified with Rust 1.96 using locked Clippy, workspace
+tests, and a release build. The implementation uses SQLx, bundled SQLite,
+embedded migrations, atomic write transactions, and real-file integration tests.
 
 ### 3. Server foundation
 
@@ -106,17 +106,20 @@ review, compatibility tests, and reproducible release builds.
 
 ## Current Focus
 
-The SQLite persistence implementation is complete. Its implementation decisions
+The SQLite persistence implementation is complete and verified. Its decisions
 are recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md).
 
-Before server transport work begins:
+The next milestone is the server foundation. Before adding application
+endpoints or WebSocket protocol messages:
 
-1. Generate and commit the updated `Cargo.lock` with Rust 1.96.
-2. Run formatting, tests, Clippy, documentation, and a release build.
-3. Resolve any toolchain-specific diagnostics without changing the documented
-   persistence contracts.
-4. Begin the server foundation milestone only after these checks pass.
+1. Define configuration for the listen address and database path.
+2. Establish the Tokio process lifecycle and a thin composition root.
+3. Initialize structured tracing before opening runtime resources.
+4. Open and migrate SQLite during startup, failing startup on errors.
+5. Add health handling and graceful shutdown with deterministic resource cleanup.
+6. Verify startup, shutdown, and configuration behavior without introducing the
+   authentication or WebSocket protocol yet.
 
 This milestone is complete when every storage capability required by `chat`
 has a tested SQLite implementation, a fresh database can be migrated without
