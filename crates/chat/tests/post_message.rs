@@ -6,14 +6,14 @@ use std::{
 
 use chat::{
     Chat, ChatEvent, ConversationId, Message, MessageBodyError, MessageId, NewMessage, PostMessage,
-    PostMessageError, Store, StoreError, UserId,
+    PostMessageError, PostMessageStore, UserId,
 };
 use futures_executor::block_on;
 
 #[derive(Clone, Copy)]
 enum TestOutcome {
     Success,
-    Failure(StoreError),
+    Failure(PostMessageError),
 }
 
 #[derive(Clone)]
@@ -27,7 +27,7 @@ impl TestStore {
         Self::new(TestOutcome::Success)
     }
 
-    fn failing(error: StoreError) -> Self {
+    fn failing(error: PostMessageError) -> Self {
         Self::new(TestOutcome::Failure(error))
     }
 
@@ -46,11 +46,11 @@ impl TestStore {
     }
 }
 
-impl Store for TestStore {
+impl PostMessageStore for TestStore {
     fn create_message(
         &self,
         message: NewMessage,
-    ) -> impl Future<Output = Result<Message, StoreError>> + Send {
+    ) -> impl Future<Output = Result<Message, PostMessageError>> + Send {
         self.received
             .lock()
             .expect("the test store lock should not be poisoned")
@@ -120,19 +120,13 @@ fn invalid_bodies_are_rejected_before_the_store_is_called() {
 #[test]
 fn store_failures_are_exposed_as_use_case_errors() {
     let cases = [
-        (
-            StoreError::ConversationNotFound,
-            PostMessageError::ConversationNotFound,
-        ),
-        (
-            StoreError::AuthorNotMember,
-            PostMessageError::AuthorNotMember,
-        ),
-        (StoreError::Unavailable, PostMessageError::StoreUnavailable),
+        PostMessageError::ConversationNotFound,
+        PostMessageError::AuthorNotMember,
+        PostMessageError::StoreUnavailable,
     ];
 
-    for (store_error, expected) in cases {
-        let chat = Chat::new(TestStore::failing(store_error));
+    for expected in cases {
+        let chat = Chat::new(TestStore::failing(expected));
         let error =
             block_on(chat.post_message(user_id(), PostMessage::new(conversation_id(), "hello")))
                 .expect_err("the store failure should fail the use case");

@@ -1,6 +1,8 @@
 use std::fmt;
 
-use crate::{ChatEvent, ConversationId, Message, MessageBodyError, StoreError};
+use crate::{
+    Chat, ChatEvent, ConversationId, Message, MessageBody, MessageBodyError, NewMessage, UserId,
+};
 
 /// Requests a new message in a conversation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,10 +29,6 @@ impl PostMessage {
     pub fn body(&self) -> &str {
         &self.body
     }
-
-    pub(crate) fn into_parts(self) -> (ConversationId, String) {
-        (self.conversation_id, self.body)
-    }
 }
 
 /// The result of posting a message.
@@ -41,7 +39,7 @@ pub struct PostMessageResult {
 }
 
 impl PostMessageResult {
-    pub(crate) fn new(message: Message) -> Self {
+    fn new(message: Message) -> Self {
         let events = vec![ChatEvent::MessagePosted {
             message: message.clone(),
         }];
@@ -73,6 +71,8 @@ pub enum PostMessageError {
     ConversationNotFound,
     /// The author is not a member of the target conversation.
     AuthorNotMember,
+    /// The store returned a message inconsistent with the request.
+    InvalidStoreResult,
     /// Persistence was temporarily unavailable.
     StoreUnavailable,
 }
@@ -83,6 +83,7 @@ impl fmt::Display for PostMessageError {
             Self::InvalidBody(error) => error.fmt(formatter),
             Self::ConversationNotFound => formatter.write_str("conversation not found"),
             Self::AuthorNotMember => formatter.write_str("author is not a conversation member"),
+            Self::InvalidStoreResult => formatter.write_str("the store returned invalid state"),
             Self::StoreUnavailable => formatter.write_str("the store is unavailable"),
         }
     }
@@ -103,12 +104,25 @@ impl From<MessageBodyError> for PostMessageError {
     }
 }
 
-impl From<StoreError> for PostMessageError {
-    fn from(error: StoreError) -> Self {
-        match error {
-            StoreError::ConversationNotFound => Self::ConversationNotFound,
-            StoreError::AuthorNotMember => Self::AuthorNotMember,
-            StoreError::Unavailable => Self::StoreUnavailable,
+impl<S: crate::PostMessageStore> Chat<S> {
+    /// Validates and persists a message for an authenticated user.
+    pub async fn post_message(
+        &self,
+        author_id: UserId,
+        command: PostMessage,
+    ) -> Result<PostMessageResult, PostMessageError> {
+        let conversation_id = command.conversation_id;
+        let body = MessageBody::try_from(command.body)?;
+        let message = NewMessage::new(conversation_id, author_id, body.clone());
+        let message = self.store().create_message(message).await?;
+
+        if message.conversation_id() != conversation_id
+            || message.author_id() != author_id
+            || message.body() != &body
+        {
+            return Err(PostMessageError::InvalidStoreResult);
         }
+
+        Ok(PostMessageResult::new(message))
     }
 }
