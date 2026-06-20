@@ -1,6 +1,6 @@
 # Server Foundation Plan
 
-Status: implemented and verified; formatting and manual SIGTERM checks remain
+Status: implemented and verified
 Date: 2026-06-21
 
 ## Scope
@@ -406,10 +406,9 @@ order.
 - manually verify Ctrl-C and SIGTERM
 - update README milestone status and operational examples
 
-Result: documentation and operational examples are updated. Rust 1.96 check,
-Clippy, workspace tests, release build, health probes, and graceful SIGINT
-shutdown have been verified locally. Formatting and manual SIGTERM checks
-remain.
+Result: documentation and operational examples are updated. Rust 1.96
+formatting, check, Clippy, workspace tests, release build, health probes, and
+graceful SIGINT and SIGTERM shutdown have been verified locally.
 
 ## Acceptance Criteria
 

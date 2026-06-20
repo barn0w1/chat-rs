@@ -85,7 +85,8 @@ Status: implemented and locally verified with Rust 1.96. The server reads
 validated environment configuration, initializes structured tracing, opens and
 migrates SQLite before binding, exposes liveness and readiness probes, and
 closes the database pool after Axum graceful shutdown. Check, Clippy, all 40
-tests, release build, health probes, and graceful SIGINT shutdown pass.
+tests, release build, formatting, health probes, and graceful SIGINT and SIGTERM
+shutdown pass.
 
 ### 4. Authentication and protocol
 
@@ -113,9 +114,7 @@ review, compatibility tests, and reproducible release builds.
 ## Current Focus
 
 The core application, SQLite persistence, and server foundation are implemented
-and verified. Formatting and a manual SIGTERM check remain before closing the
-server-foundation verification record. The implementation decisions are
-recorded in
+and verified. The implementation decisions are recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md) and
 [`docs/server-foundation.md`](docs/server-foundation.md).
 
@@ -153,3 +152,7 @@ cargo run -p chat-server
 
 The operational probes are `GET /health/live` and `GET /health/ready`; both
 return `204 No Content` when the process is ready.
+
+## License
+
+No license is granted for this repository.
