@@ -52,7 +52,7 @@ impl CookiePolicy {
         self.removal(self.login_name())
     }
 
-    pub(crate) fn find<'a>(&self, header: &'a str, name: &str) -> Option<String> {
+    pub(crate) fn find(&self, header: &str, name: &str) -> Option<String> {
         Cookie::split_parse(header)
             .filter_map(Result::ok)
             .find(|cookie| cookie.name() == name)

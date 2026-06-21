@@ -372,8 +372,6 @@ impl IntoResponse for Problem {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-
     use axum::{
         body::Body,
         http::{Method, Request},
