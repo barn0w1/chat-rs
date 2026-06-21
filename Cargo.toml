@@ -11,6 +11,7 @@ repository = "https://github.com/barn0w1/chat-rs"
 
 [workspace.dependencies]
 axum = { version = "0.8.9", default-features = false, features = [
+    "form",
     "http1",
     "json",
     "query",

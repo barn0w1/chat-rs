@@ -3,11 +3,15 @@ use std::time::{Duration, SystemTime};
 use chat::{DisplayName, User, UserId};
 use sqlx::FromRow;
 
-use crate::sqlite::{SqliteStore, is_unique_violation, system_time_from_millis};
+use crate::{
+    AdmissionMode,
+    sqlite::{SqliteStore, is_unique_violation, system_time_from_millis},
+};
 
 use super::{
-    AuthError, AuthenticatedSession, ConsumedOidcLogin, IssuedSession, OidcLoginTransaction,
-    SecretToken, VerifiedIdentity, unix_time_millis,
+    AdmissionCodeId, AdmissionOutcome, AuthError, AuthenticatedSession, ConsumedOidcLogin,
+    IssuedAdmissionCode, IssuedSession, OidcLoginTransaction, SecretToken, VerifiedIdentity,
+    unix_time_millis,
 };
 
 const SESSION_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -24,11 +28,13 @@ impl AuthStore {
         Self { sqlite }
     }
 
-    pub(crate) async fn resolve_or_provision(
+    pub(crate) async fn resolve_or_admit(
         &self,
         identity: &VerifiedIdentity,
+        admission_code_id: Option<AdmissionCodeId>,
+        mode: AdmissionMode,
         now: SystemTime,
-    ) -> Result<User, AuthError> {
+    ) -> Result<AdmissionOutcome, AuthError> {
         let created_at_ms = unix_time_millis(now)?;
         let mut transaction = self.sqlite.pool.begin_with("BEGIN IMMEDIATE").await?;
 
@@ -45,7 +51,29 @@ impl AuthStore {
         {
             let user = row.into_user()?;
             transaction.commit().await?;
-            return Ok(user);
+            return Ok(AdmissionOutcome::Admitted(user));
+        }
+
+        let allowed = match mode {
+            AdmissionMode::Open => true,
+            AdmissionMode::InviteOnly => match admission_code_id {
+                Some(code_id) => {
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT EXISTS(SELECT 1 FROM admission_codes \
+                         WHERE id = ? AND expires_at_ms > ?)",
+                    )
+                    .bind(code_id.get())
+                    .bind(created_at_ms)
+                    .fetch_one(&mut *transaction)
+                    .await?
+                        == 1
+                }
+                None => false,
+            },
+        };
+        if !allowed {
+            transaction.rollback().await?;
+            return Ok(AdmissionOutcome::Denied);
         }
 
         let user_id = sqlx::query_scalar::<_, i64>(
@@ -68,12 +96,75 @@ impl AuthStore {
         .await?;
 
         transaction.commit().await?;
-        UserRow {
+        let user = UserRow {
             id: user_id,
             display_name: identity.display_name().as_str().to_owned(),
             created_at_ms,
         }
-        .into_user()
+        .into_user()?;
+        Ok(AdmissionOutcome::Admitted(user))
+    }
+
+    pub(crate) async fn create_admission_code(
+        &self,
+        valid_for: Duration,
+        now: SystemTime,
+    ) -> Result<IssuedAdmissionCode, AuthError> {
+        let created_at_ms = unix_time_millis(now)?;
+        let expires_at_ms = expiry_millis(now, valid_for)?;
+        if expires_at_ms <= created_at_ms {
+            return Err(AuthError::TimeUnavailable);
+        }
+
+        for _ in 0..TOKEN_INSERT_ATTEMPTS {
+            let token = SecretToken::generate()?;
+            let token_hash = token.hash();
+            let mut transaction = self.sqlite.pool.begin_with("BEGIN IMMEDIATE").await?;
+            sqlx::query("DELETE FROM admission_codes WHERE expires_at_ms <= ?")
+                .bind(created_at_ms)
+                .execute(&mut *transaction)
+                .await?;
+            let result = sqlx::query(
+                "INSERT INTO admission_codes (token_hash, created_at_ms, expires_at_ms) \
+                 VALUES (?, ?, ?)",
+            )
+            .bind(token_hash.as_slice())
+            .bind(created_at_ms)
+            .bind(expires_at_ms)
+            .execute(&mut *transaction)
+            .await;
+
+            match result {
+                Ok(_) => {
+                    transaction.commit().await?;
+                    return Ok(IssuedAdmissionCode::new(token, expires_at_ms));
+                }
+                Err(error) if is_unique_violation(&error) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+
+        Err(AuthError::InvalidStoredData)
+    }
+
+    pub(crate) async fn resolve_admission_code(
+        &self,
+        token: &str,
+        now: SystemTime,
+    ) -> Result<Option<AdmissionCodeId>, AuthError> {
+        let token = match SecretToken::parse(token) {
+            Ok(token) => token,
+            Err(_) => return Ok(None),
+        };
+        let now_ms = unix_time_millis(now)?;
+        let id = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM admission_codes WHERE token_hash = ? AND expires_at_ms > ?",
+        )
+        .bind(token.hash().as_slice())
+        .bind(now_ms)
+        .fetch_optional(&self.sqlite.pool)
+        .await?;
+        id.map(AdmissionCodeId::new).transpose()
     }
 
     pub(crate) async fn issue_session(
@@ -182,7 +273,8 @@ impl AuthStore {
         sqlx::query(
             "INSERT INTO oidc_login_transactions \
              (state_hash, browser_binding_hash, nonce, pkce_verifier, \
-              created_at_ms, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+              created_at_ms, expires_at_ms, admission_code_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(login.state().hash().as_slice())
         .bind(login.browser_binding().hash().as_slice())
@@ -190,6 +282,7 @@ impl AuthStore {
         .bind(login.pkce_verifier())
         .bind(created_at_ms)
         .bind(expires_at_ms)
+        .bind(login.admission_code_id().map(AdmissionCodeId::get))
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
@@ -210,7 +303,7 @@ impl AuthStore {
         let mut transaction = self.sqlite.pool.begin_with("BEGIN IMMEDIATE").await?;
 
         let row = sqlx::query_as::<_, LoginRow>(
-            "SELECT browser_binding_hash, nonce, pkce_verifier \
+            "SELECT browser_binding_hash, nonce, pkce_verifier, admission_code_id \
              FROM oidc_login_transactions \
              WHERE state_hash = ? AND expires_at_ms > ?",
         )
@@ -234,7 +327,15 @@ impl AuthStore {
         }
 
         transaction.commit().await?;
-        Ok(ConsumedOidcLogin::new(row.nonce, row.pkce_verifier))
+        let admission_code_id = row
+            .admission_code_id
+            .map(AdmissionCodeId::new)
+            .transpose()?;
+        Ok(ConsumedOidcLogin::new(
+            row.nonce,
+            row.pkce_verifier,
+            admission_code_id,
+        ))
     }
 }
 
@@ -292,6 +393,7 @@ struct LoginRow {
     browser_binding_hash: Vec<u8>,
     nonce: String,
     pkce_verifier: String,
+    admission_code_id: Option<i64>,
 }
 
 #[cfg(test)]
@@ -308,23 +410,34 @@ mod tests {
         (AuthStore::new(sqlite.clone()), sqlite, directory)
     }
 
+    async fn admit(
+        store: &AuthStore,
+        identity: &VerifiedIdentity,
+        code: Option<AdmissionCodeId>,
+        mode: AdmissionMode,
+        now: SystemTime,
+    ) -> User {
+        match store
+            .resolve_or_admit(identity, code, mode, now)
+            .await
+            .expect("admission can be evaluated")
+        {
+            AdmissionOutcome::Admitted(user) => user,
+            AdmissionOutcome::Denied => panic!("identity should be admitted"),
+        }
+    }
+
     #[tokio::test]
     async fn identities_are_stable_and_names_do_not_follow_provider_changes() {
         let (store, sqlite, _directory) = test_store().await;
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
         let first =
             VerifiedIdentity::new("issuer", "subject", Some("Alice")).expect("identity is valid");
-        let user = store
-            .resolve_or_provision(&first, now)
-            .await
-            .expect("user can be provisioned");
+        let user = admit(&store, &first, None, AdmissionMode::Open, now).await;
 
         let changed =
             VerifiedIdentity::new("issuer", "subject", Some("Changed")).expect("identity is valid");
-        let resolved = store
-            .resolve_or_provision(&changed, now)
-            .await
-            .expect("identity can be resolved");
+        let resolved = admit(&store, &changed, None, AdmissionMode::InviteOnly, now).await;
 
         assert_eq!(resolved.id(), user.id());
         assert_eq!(resolved.display_name().as_str(), "Alice");
@@ -339,11 +452,17 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(15);
 
         let (first, second) = tokio::join!(
-            store.resolve_or_provision(&identity, now),
-            store.resolve_or_provision(&identity, now),
+            store.resolve_or_admit(&identity, None, AdmissionMode::Open, now),
+            store.resolve_or_admit(&identity, None, AdmissionMode::Open, now),
         );
 
-        assert_eq!(first.unwrap().id(), second.unwrap().id());
+        let AdmissionOutcome::Admitted(first) = first.unwrap() else {
+            panic!("first login should be admitted");
+        };
+        let AdmissionOutcome::Admitted(second) = second.unwrap() else {
+            panic!("second login should be admitted");
+        };
+        assert_eq!(first.id(), second.id());
         let users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
             .fetch_one(&sqlite.pool)
             .await
@@ -419,6 +538,7 @@ mod tests {
             .await
             .expect("matching login can be consumed");
         assert_eq!(consumed.nonce(), "nonce");
+        assert_eq!(consumed.admission_code_id(), None);
         assert!(
             store
                 .consume_oidc_login(
@@ -460,6 +580,210 @@ mod tests {
                 )
                 .await
                 .is_err()
+        );
+        sqlite.close().await;
+    }
+
+    #[tokio::test]
+    async fn admission_codes_are_hashed_reusable_and_expiring() {
+        let (store, sqlite, _directory) = test_store().await;
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        let lifetime = Duration::from_secs(60 * 60);
+        let issued = store
+            .create_admission_code(lifetime, now)
+            .await
+            .expect("admission code can be created");
+        let token = issued.token();
+
+        let stored = sqlx::query_as::<_, (Vec<u8>, i64)>(
+            "SELECT token_hash, expires_at_ms FROM admission_codes",
+        )
+        .fetch_one(&sqlite.pool)
+        .await
+        .expect("stored code can be inspected");
+        assert_eq!(stored.0.len(), 32);
+        assert_ne!(stored.0.as_slice(), token.as_bytes());
+        assert_eq!(stored.1, issued.expires_at_ms());
+
+        let first = store
+            .resolve_admission_code(&token, now)
+            .await
+            .expect("code lookup succeeds")
+            .expect("code is active");
+        let second = store
+            .resolve_admission_code(&token, now + Duration::from_secs(1))
+            .await
+            .expect("code can be reused")
+            .expect("code remains active");
+        assert_eq!(first, second);
+        assert!(
+            store
+                .resolve_admission_code(&token, now + lifetime)
+                .await
+                .expect("expiry lookup succeeds")
+                .is_none()
+        );
+        sqlite.close().await;
+    }
+
+    #[tokio::test]
+    async fn invite_only_admits_many_identities_with_one_code() {
+        let (store, sqlite, _directory) = test_store().await;
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(200);
+        let issued = store
+            .create_admission_code(Duration::from_secs(60), now)
+            .await
+            .expect("admission code can be created");
+        let code = store
+            .resolve_admission_code(&issued.token(), now)
+            .await
+            .expect("code lookup succeeds")
+            .expect("code is active");
+        let alice = VerifiedIdentity::new("issuer", "alice", Some("Alice")).unwrap();
+        let bob = VerifiedIdentity::new("issuer", "bob", Some("Bob")).unwrap();
+
+        let alice_user = admit(&store, &alice, Some(code), AdmissionMode::InviteOnly, now).await;
+        let bob_user = admit(&store, &bob, Some(code), AdmissionMode::InviteOnly, now).await;
+        assert_ne!(alice_user.id(), bob_user.id());
+
+        let resolved_after_expiry = admit(
+            &store,
+            &alice,
+            None,
+            AdmissionMode::InviteOnly,
+            now + Duration::from_secs(61),
+        )
+        .await;
+        assert_eq!(resolved_after_expiry.id(), alice_user.id());
+        sqlite.close().await;
+    }
+
+    #[tokio::test]
+    async fn invite_only_denies_new_identity_without_an_active_code() {
+        let (store, sqlite, _directory) = test_store().await;
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(300);
+        let identity = VerifiedIdentity::new("issuer", "unknown", None).unwrap();
+
+        let outcome = store
+            .resolve_or_admit(&identity, None, AdmissionMode::InviteOnly, now)
+            .await
+            .expect("admission can be evaluated");
+        assert!(matches!(outcome, AdmissionOutcome::Denied));
+        let users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+            .fetch_one(&sqlite.pool)
+            .await
+            .unwrap();
+        assert_eq!(users, 0);
+        sqlite.close().await;
+    }
+
+    #[tokio::test]
+    async fn oidc_transaction_carries_only_the_internal_admission_code_id() {
+        let (store, sqlite, _directory) = test_store().await;
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(400);
+        let issued = store
+            .create_admission_code(Duration::from_secs(60), now)
+            .await
+            .unwrap();
+        let code = store
+            .resolve_admission_code(&issued.token(), now)
+            .await
+            .unwrap()
+            .unwrap();
+        let login = OidcLoginTransaction::new(
+            SecretToken::generate().unwrap(),
+            SecretToken::generate().unwrap(),
+            String::from("nonce"),
+            "v".repeat(43),
+        )
+        .with_admission_code(code);
+        store.store_oidc_login(&login, now).await.unwrap();
+
+        let consumed = store
+            .consume_oidc_login(
+                &login.state().encode(),
+                &login.browser_binding().encode(),
+                now,
+            )
+            .await
+            .unwrap();
+        assert_eq!(consumed.admission_code_id(), Some(code));
+        sqlite.close().await;
+    }
+
+    #[tokio::test]
+    async fn concurrent_identities_can_share_one_active_code() {
+        let (store, sqlite, _directory) = test_store().await;
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(500);
+        let issued = store
+            .create_admission_code(Duration::from_secs(60), now)
+            .await
+            .unwrap();
+        let code = store
+            .resolve_admission_code(&issued.token(), now)
+            .await
+            .unwrap()
+            .unwrap();
+        let alice = VerifiedIdentity::new("issuer", "alice", Some("Alice")).unwrap();
+        let bob = VerifiedIdentity::new("issuer", "bob", Some("Bob")).unwrap();
+
+        let (alice, bob) = tokio::join!(
+            store.resolve_or_admit(&alice, Some(code), AdmissionMode::InviteOnly, now),
+            store.resolve_or_admit(&bob, Some(code), AdmissionMode::InviteOnly, now),
+        );
+        assert!(matches!(alice.unwrap(), AdmissionOutcome::Admitted(_)));
+        assert!(matches!(bob.unwrap(), AdmissionOutcome::Admitted(_)));
+        let users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+            .fetch_one(&sqlite.pool)
+            .await
+            .unwrap();
+        assert_eq!(users, 2);
+        sqlite.close().await;
+    }
+
+    #[tokio::test]
+    async fn failed_admission_rolls_back_user_and_binding() {
+        let (store, sqlite, _directory) = test_store().await;
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(600);
+        let issued = store
+            .create_admission_code(Duration::from_secs(60), now)
+            .await
+            .unwrap();
+        let code = store
+            .resolve_admission_code(&issued.token(), now)
+            .await
+            .unwrap()
+            .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER reject_auth_identity BEFORE INSERT ON auth_identities \
+             BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+        )
+        .execute(&sqlite.pool)
+        .await
+        .unwrap();
+        let identity = VerifiedIdentity::new("issuer", "subject", Some("Alice")).unwrap();
+
+        assert!(
+            store
+                .resolve_or_admit(&identity, Some(code), AdmissionMode::InviteOnly, now)
+                .await
+                .is_err()
+        );
+        let users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
+            .fetch_one(&sqlite.pool)
+            .await
+            .unwrap();
+        let bindings = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM auth_identities")
+            .fetch_one(&sqlite.pool)
+            .await
+            .unwrap();
+        assert_eq!((users, bindings), (0, 0));
+        assert!(
+            store
+                .resolve_admission_code(&issued.token(), now)
+                .await
+                .unwrap()
+                .is_some()
         );
         sqlite.close().await;
     }

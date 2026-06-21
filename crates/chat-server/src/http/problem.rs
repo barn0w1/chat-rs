@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::rejection::JsonRejection,
+    extract::rejection::{FormRejection, JsonRejection},
     http::{
         HeaderValue, StatusCode,
         header::{CACHE_CONTROL, CONTENT_TYPE, WWW_AUTHENTICATE},
@@ -85,6 +85,18 @@ impl Problem {
             StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => Self::invalid_request(),
             status => {
                 tracing::error!(%status, "unexpected JSON extraction failure");
+                Self::internal()
+            }
+        }
+    }
+
+    pub(crate) fn from_form_rejection(rejection: FormRejection) -> Self {
+        match rejection.status() {
+            StatusCode::PAYLOAD_TOO_LARGE => Self::content_too_large(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE => Self::unsupported_media_type(),
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => Self::invalid_request(),
+            status => {
+                tracing::error!(%status, "unexpected form extraction failure");
                 Self::internal()
             }
         }

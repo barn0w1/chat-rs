@@ -76,9 +76,10 @@ Do not implement in 4B.1:
 - mutation idempotency storage
 - CORS
 
-The OIDC identity adapter continues to provision the local user on first
-successful login. A separate public `POST /users` would duplicate that policy
-and is not part of the browser protocol.
+The identity adapter produces `VerifiedIdentity`; server admission then decides
+whether a first login may provision the local user. A separate public
+`POST /users` would duplicate that policy and is not part of the browser
+protocol.
 
 ## Pagination Changes in `chat`
 

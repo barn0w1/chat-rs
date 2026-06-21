@@ -101,14 +101,17 @@ sessions, CSRF protection, and `/api/v1` JSON conventions. Then expose the chat
 use cases through authenticated HTTP routes. WebSocket remains a later live
 event channel rather than a second command protocol.
 
-Status: increments 4A, 4B.1, and 4B.2 are implemented. The server has a
+Status: increments 4A, 4B.1, 4B.2, and server admission are implemented. The
+server has a
 method-independent verified identity boundary, standards-based OIDC
 authorization-code login with PKCE, SQLite-backed opaque sessions, secure
 cookie policy, Origin and CSRF checks, and authenticated read resources for
 conversations, members, and messages. Authenticated clients can create
 conversations, post messages, and retrieve individual messages through strict,
 bounded JSON routes. Real-provider and browser integration checks remain
-operational verification.
+operational verification. New verified identities are admitted according to
+`open` or `invite_only`; the latter accepts reusable, expiring codes created by
+the server operator.
 
 ### 5. Real-time delivery
 
@@ -145,8 +148,17 @@ the shared HTTP boundary and authenticated, paginated read routes. Increment
 strict request DTOs, body limits, Origin and CSRF enforcement, and finite
 domain-error mapping. Its reviewed implementation plan is recorded in
 [`docs/http-chat-mutations-plan.md`](docs/http-chat-mutations-plan.md). Retry
-deduplication, membership workflow, server admission policy, and WebSocket
-delivery remain separately planned work.
+deduplication, membership workflow, and WebSocket delivery remain separately
+planned work.
+
+The server-admission increment separates verified
+identity from permission to use a particular self-hosted server, adds explicit
+`open` and `invite_only` policies, and keeps provider-specific authentication
+outside the policy boundary. `invite_only` uses reusable, expiring admission
+codes so an operator can share one code with a group; with no valid code it is
+effectively closed. Its implemented scope, security contracts, persistence
+design, and verification plan are recorded in
+[`docs/server-admission-plan.md`](docs/server-admission-plan.md).
 
 ## Development
 
@@ -166,7 +178,9 @@ cargo run -p chat-server
 ```
 
 Configuration is provided through `CHAT_LISTEN_ADDR`, `CHAT_DATABASE_PATH`,
-`CHAT_PUBLIC_URL`, and `RUST_LOG`. OIDC login is enabled by setting
+`CHAT_PUBLIC_URL`, `CHAT_ADMISSION_MODE`, and `RUST_LOG`.
+`CHAT_ADMISSION_MODE` is `invite_only` by default and also accepts `open`.
+OIDC login is enabled by setting
 `CHAT_OIDC_ISSUER` and `CHAT_OIDC_CLIENT_ID` together; a provider that requires
 confidential-client authentication also uses `CHAT_OIDC_CLIENT_SECRET`.
 For example:
@@ -179,6 +193,14 @@ CHAT_OIDC_ISSUER=https://accounts.example.com \
 CHAT_OIDC_CLIENT_ID=chat \
 RUST_LOG=chat_server=debug,tower_http=info \
 cargo run -p chat-server
+```
+
+Create a shared admission code with a bounded lifetime. The command prints the
+raw code once and stores only its hash.
+
+```sh
+CHAT_DATABASE_PATH=var/chat.sqlite3 \
+cargo run -p chat-server -- admission-code create --valid-for-hours 168
 ```
 
 The operational probes are `GET /health/live` and `GET /health/ready`; both

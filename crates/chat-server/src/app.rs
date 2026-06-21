@@ -6,7 +6,7 @@ use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, Tr
 use tracing::Level;
 
 use crate::{
-    Config,
+    AdmissionMode, Config,
     auth::{AuthStore, CookiePolicy, OidcProvider},
     http,
     sqlite::SqliteStore,
@@ -22,6 +22,7 @@ pub(crate) struct AppState {
     pub(crate) cookies: CookiePolicy,
     pub(crate) expected_origin: String,
     pub(crate) oidc: Option<OidcProvider>,
+    pub(crate) admission_mode: AdmissionMode,
 }
 
 pub(crate) fn router(store: SqliteStore, config: &Config, oidc: Option<OidcProvider>) -> Router {
@@ -33,6 +34,7 @@ pub(crate) fn router(store: SqliteStore, config: &Config, oidc: Option<OidcProvi
         cookies: CookiePolicy::new(config.public_url()),
         expected_origin: config.public_url().origin().ascii_serialization(),
         oidc,
+        admission_mode: config.admission_mode(),
     };
     let trace = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
