@@ -1,6 +1,7 @@
 # Server Admission Plan
 
-Status: implemented; local Rust and real-provider verification pending  
+Status: implemented and mechanically verified on Rust 1.96; real-provider
+verification pending  
 Date: 2026-06-22
 
 ## Purpose

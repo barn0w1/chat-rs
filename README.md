@@ -196,7 +196,10 @@ cargo run -p chat-server
 ```
 
 Create a shared admission code with a bounded lifetime. The command prints the
-raw code once and stores only its hash.
+raw code once and stores only its hash. It may run in a separate process while
+the server is running; both processes must use the same `CHAT_DATABASE_PATH`.
+The running server reads admission codes from SQLite and does not require a
+restart.
 
 ```sh
 CHAT_DATABASE_PATH=var/chat.sqlite3 \
