@@ -370,7 +370,9 @@ core domain types. Convert between the two at the handler boundary.
 - Collections are arrays, including empty collections.
 - Request DTOs reject unknown fields; response consumers must tolerate added
   fields within the same protocol version.
-- Apply a small explicit body limit, initially 16 KiB, to JSON command routes.
+- Apply an explicit route-local body limit to JSON command routes. Size it from
+  the domain payload and JSON's encoded worst case; the 4B plan currently uses
+  64 KiB for chat commands.
 - Return `413` for oversized input and `415` for a wrong content type.
 - Add `Cache-Control: no-store` to session and authenticated API responses.
 
@@ -407,33 +409,13 @@ logged and returned as a generic `500` problem.
 
 ## 4B HTTP Chat Surface
 
-After 4A passes, map the existing core capabilities through authenticated HTTP
-routes. The initial candidate surface is:
+The researched scope, endpoint contracts, pagination changes, implementation
+slices, and deferred decisions for 4B are maintained in
+[`http-chat-api-plan.md`](http-chat-api-plan.md).
 
-```text
-GET    /api/v1/conversations
-POST   /api/v1/conversations
-GET    /api/v1/conversations/{conversation_id}
-GET    /api/v1/conversations/{conversation_id}/members
-DELETE /api/v1/conversations/{conversation_id}/members/{user_id}
-GET    /api/v1/conversations/{conversation_id}/messages?before=...&limit=...
-POST   /api/v1/conversations/{conversation_id}/messages
-```
-
-The authenticated user is always the actor. Resource IDs are parsed from
-decimal path/query strings into the existing strong ID types. Message pages
-preserve newest-first ordering and string cursors.
-
-Do not expose add-member yet. The core accepts a `UserId`, but the product has
-no safe user-discovery or invitation flow, and display names are not unique.
-Choose an invitation model or a deliberately scoped user directory before
-making that operation reachable from the browser.
-
-POST retry semantics also require an explicit decision before 4B. The current
-IETF `Idempotency-Key` proposal is an expired Internet-Draft, not a published
-standard. Prefer entity-specific client operation IDs stored in the same SQLite
-transaction for message and conversation creation rather than promising a
-generic idempotency layer that cannot be atomic with existing use cases.
+The next code increment is 4B.1: authenticated read routes. Mutation routes,
+operation deduplication, and membership invitations are separate increments so
+their transaction and product semantics can be reviewed independently.
 
 ## Future WebSocket Contract
 
