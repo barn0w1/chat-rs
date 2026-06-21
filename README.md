@@ -141,6 +141,12 @@ authenticated HTTP routes. Before implementation, each endpoint should have a
 small reviewed contract covering actor derivation, request and response DTOs,
 domain-error mapping, pagination, body limits, and transaction ownership.
 
+That review is recorded in
+[`docs/http-chat-api-plan.md`](docs/http-chat-api-plan.md). The next code change
+is deliberately limited to 4B.1: authenticated, paginated read routes and the
+shared HTTP boundary they require. Mutations, retry deduplication, membership
+invitations, and WebSocket delivery remain separate increments.
+
 ## Development
 
 The repository toolchain is selected by `rust-toolchain.toml`.
