@@ -2,9 +2,10 @@ use std::{future::Future, future::ready, time::SystemTime};
 
 use chat::{
     AddMember, AddMemberError, AddMemberStore, Chat, ConversationId, CreateUser, CreateUserError,
-    CreateUserStore, DisplayName, ListMessages, ListMessagesError, ListMessagesStore, Membership,
-    MembershipRole, Message, MessageBody, MessageId, MessagePage, NewMembership, NewUser, User,
-    UserId,
+    CreateUserStore, DisplayName, ListConversations, ListConversationsError,
+    ListConversationsStore, ListMembers, ListMembersError, ListMembersStore, ListMessages,
+    ListMessagesError, ListMessagesStore, Membership, MembershipRole, Message, MessageBody,
+    MessageId, MessagePage, NewMembership, NewUser, User, UserId,
 };
 use futures_executor::block_on;
 
@@ -101,4 +102,82 @@ fn message_queries_reject_pages_that_are_not_newest_first() {
     .expect_err("message IDs must be strictly descending");
 
     assert_eq!(error, ListMessagesError::InvalidStoreResult);
+}
+
+struct InvalidConversationPageStore;
+
+impl ListConversationsStore for InvalidConversationPageStore {
+    fn list_conversations(
+        &self,
+        _actor_id: UserId,
+        _query: ListConversations,
+    ) -> impl Future<Output = Result<chat::ConversationPage, ListConversationsError>> + Send {
+        let summary = |id| {
+            chat::ConversationSummary::new(
+                chat::Conversation::new(
+                    conversation_id(id),
+                    chat::ConversationTitle::try_from("General")
+                        .expect("the fixture title is valid"),
+                    SystemTime::UNIX_EPOCH,
+                ),
+                MembershipRole::Member,
+            )
+        };
+        ready(Ok(chat::ConversationPage::new(
+            vec![summary(10), summary(11)],
+            None,
+        )))
+    }
+}
+
+#[test]
+fn conversation_queries_reject_pages_that_are_not_newest_first() {
+    let error = block_on(
+        Chat::new(InvalidConversationPageStore)
+            .list_conversations(user_id(1), ListConversations::new()),
+    )
+    .expect_err("conversation IDs must be strictly descending");
+
+    assert_eq!(error, ListConversationsError::InvalidStoreResult);
+}
+
+struct InvalidMemberPageStore;
+
+impl ListMembersStore for InvalidMemberPageStore {
+    fn list_members(
+        &self,
+        _actor_id: UserId,
+        query: ListMembers,
+    ) -> impl Future<Output = Result<chat::MemberPage, ListMembersError>> + Send {
+        let member = |id| {
+            let user_id = user_id(id);
+            chat::ConversationMember::new(
+                User::new(
+                    user_id,
+                    DisplayName::try_from(format!("User {id}"))
+                        .expect("the fixture display name is valid"),
+                    SystemTime::UNIX_EPOCH,
+                ),
+                Membership::new(
+                    query.conversation_id(),
+                    user_id,
+                    MembershipRole::Member,
+                    SystemTime::UNIX_EPOCH,
+                ),
+            )
+            .expect("the fixture user and membership match")
+        };
+        ready(Ok(chat::MemberPage::new(vec![member(2), member(1)], None)))
+    }
+}
+
+#[test]
+fn member_queries_reject_pages_that_are_not_in_user_id_order() {
+    let error = block_on(
+        Chat::new(InvalidMemberPageStore)
+            .list_members(user_id(1), ListMembers::new(conversation_id(2))),
+    )
+    .expect_err("member IDs must be strictly ascending");
+
+    assert_eq!(error, ListMembersError::InvalidStoreResult);
 }

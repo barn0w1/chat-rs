@@ -1,11 +1,11 @@
 use std::future::Future;
 
 use crate::{
-    AddMemberError, ConversationDetails, ConversationId, ConversationMember, ConversationSummary,
-    CreateConversationError, CreateUserError, CreatedConversation, GetConversationError,
-    ListConversationsError, ListMembersError, ListMessages, ListMessagesError, Membership,
-    MembershipRemoval, Message, MessagePage, NewConversation, NewMembership, NewMessage, NewUser,
-    PostMessageError, RemoveMemberError, User, UserId,
+    AddMemberError, ConversationDetails, ConversationId, ConversationPage, CreateConversationError,
+    CreateUserError, CreatedConversation, GetConversationError, ListConversations,
+    ListConversationsError, ListMembers, ListMembersError, ListMessages, ListMessagesError,
+    MemberPage, Membership, MembershipRemoval, Message, MessagePage, NewConversation,
+    NewMembership, NewMessage, NewUser, PostMessageError, RemoveMemberError, User, UserId,
 };
 
 /// Store capability required to create users.
@@ -84,7 +84,8 @@ pub trait ListConversationsStore: Send + Sync {
     fn list_conversations(
         &self,
         actor_id: UserId,
-    ) -> impl Future<Output = Result<Vec<ConversationSummary>, ListConversationsError>> + Send;
+        query: ListConversations,
+    ) -> impl Future<Output = Result<ConversationPage, ListConversationsError>> + Send;
 }
 
 /// Store capability required to list conversation members.
@@ -93,8 +94,8 @@ pub trait ListMembersStore: Send + Sync {
     fn list_members(
         &self,
         actor_id: UserId,
-        conversation_id: ConversationId,
-    ) -> impl Future<Output = Result<Vec<ConversationMember>, ListMembersError>> + Send;
+        query: ListMembers,
+    ) -> impl Future<Output = Result<MemberPage, ListMembersError>> + Send;
 }
 
 /// Store capability required to list messages.

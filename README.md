@@ -36,7 +36,8 @@ stabilized. It currently provides:
 - validated display names, conversation titles, and message bodies
 - mutation use cases for creating users and conversations, adding and removing
   members, and posting messages
-- query use cases for reading conversations, members, and paginated messages
+- keyset-paginated query use cases for reading conversations, members, and
+  messages
 - application events returned by successful mutations
 - small storage capability traits grouped into read and write stores
 - use-case and storage-contract integration tests
@@ -100,13 +101,12 @@ sessions, CSRF protection, and `/api/v1` JSON conventions. Then expose the chat
 use cases through authenticated HTTP routes. WebSocket remains a later live
 event channel rather than a second command protocol.
 
-Status: increment 4A is implemented and passes formatting, compilation, locked
-Clippy with warnings denied, and all workspace tests on Rust 1.96. It adds a
+Status: increments 4A and 4B.1 are implemented. The server has a
 method-independent verified identity boundary, standards-based OIDC
 authorization-code login with PKCE, SQLite-backed opaque sessions, secure
-cookie policy, Origin and CSRF checks, and the `/api/v1/session` resource.
-Real-provider and browser integration checks remain operational verification;
-increment 4B will expose chat use cases.
+cookie policy, Origin and CSRF checks, and authenticated read resources for
+conversations, members, and messages. Real-provider and browser integration
+checks remain operational verification. Mutation resources remain for 4B.2.
 
 ### 5. Real-time delivery
 
@@ -136,16 +136,13 @@ The authentication and versioned HTTP protocol foundation is implemented and
 mechanically verified. Its design and implemented contract are recorded in
 [`docs/authentication-protocol.md`](docs/authentication-protocol.md).
 
-The next feature increment is 4B: map the existing chat commands and queries to
-authenticated HTTP routes. Before implementation, each endpoint should have a
-small reviewed contract covering actor derivation, request and response DTOs,
-domain-error mapping, pagination, body limits, and transaction ownership.
-
-That review is recorded in
-[`docs/http-chat-api-plan.md`](docs/http-chat-api-plan.md). The next code change
-is deliberately limited to 4B.1: authenticated, paginated read routes and the
-shared HTTP boundary they require. Mutations, retry deduplication, membership
-invitations, and WebSocket delivery remain separate increments.
+The authenticated HTTP API plan is recorded in
+[`docs/http-chat-api-plan.md`](docs/http-chat-api-plan.md). Increment 4B.1 adds
+the shared HTTP boundary and authenticated, paginated read routes. The next
+increment is 4B.2: conversation creation and message posting with explicit
+request DTOs, body limits, Origin and CSRF enforcement, and domain-error
+mapping. Retry deduplication, membership workflow, server admission policy,
+and WebSocket delivery remain separately planned work.
 
 ## Development
 

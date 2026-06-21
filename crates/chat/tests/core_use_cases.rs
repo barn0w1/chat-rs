@@ -2,13 +2,14 @@ use std::{future::Future, future::ready, time::SystemTime};
 
 use chat::{
     AddMember, AddMemberError, AddMemberStore, Chat, ChatEvent, Conversation, ConversationDetails,
-    ConversationId, ConversationMember, ConversationSummary, ConversationTitle, CreateConversation,
-    CreateConversationError, CreateConversationStore, CreateUser, CreateUserError, CreateUserStore,
-    CreatedConversation, DisplayName, GetConversationError, GetConversationStore,
-    ListConversationsError, ListConversationsStore, ListMembersError, ListMembersStore,
-    ListMessages, ListMessagesError, ListMessagesStore, Membership, MembershipRemoval,
-    MembershipRole, Message, MessageBody, MessageId, MessagePage, NewConversation, NewMembership,
-    NewUser, RemoveMember, RemoveMemberError, RemoveMemberStore, User, UserId,
+    ConversationId, ConversationMember, ConversationPage, ConversationSummary, ConversationTitle,
+    CreateConversation, CreateConversationError, CreateConversationStore, CreateUser,
+    CreateUserError, CreateUserStore, CreatedConversation, DisplayName, GetConversationError,
+    GetConversationStore, ListConversations, ListConversationsError, ListConversationsStore,
+    ListMembers, ListMembersError, ListMembersStore, ListMessages, ListMessagesError,
+    ListMessagesStore, MemberPage, Membership, MembershipRemoval, MembershipRole, Message,
+    MessageBody, MessageId, MessagePage, NewConversation, NewMembership, NewUser, RemoveMember,
+    RemoveMemberError, RemoveMemberStore, User, UserId,
 };
 use futures_executor::block_on;
 
@@ -199,11 +200,15 @@ impl ListConversationsStore for Reader {
     fn list_conversations(
         &self,
         _actor_id: UserId,
-    ) -> impl Future<Output = Result<Vec<ConversationSummary>, ListConversationsError>> + Send {
-        ready(Ok(vec![ConversationSummary::new(
-            conversation(20, "General"),
-            MembershipRole::Owner,
-        )]))
+        _query: ListConversations,
+    ) -> impl Future<Output = Result<ConversationPage, ListConversationsError>> + Send {
+        ready(Ok(ConversationPage::new(
+            vec![ConversationSummary::new(
+                conversation(20, "General"),
+                MembershipRole::Owner,
+            )],
+            None,
+        )))
     }
 }
 
@@ -211,12 +216,15 @@ impl ListMembersStore for Reader {
     fn list_members(
         &self,
         _actor_id: UserId,
-        _conversation_id: ConversationId,
-    ) -> impl Future<Output = Result<Vec<ConversationMember>, ListMembersError>> + Send {
-        ready(Ok(vec![
-            ConversationMember::new(user(10, "Yuito"), membership(10, MembershipRole::Owner))
-                .expect("the fixture user and membership match"),
-        ]))
+        _query: ListMembers,
+    ) -> impl Future<Output = Result<MemberPage, ListMembersError>> + Send {
+        ready(Ok(MemberPage::new(
+            vec![
+                ConversationMember::new(user(10, "Yuito"), membership(10, MembershipRole::Owner))
+                    .expect("the fixture user and membership match"),
+            ],
+            None,
+        )))
     }
 }
 
@@ -247,12 +255,12 @@ fn read_use_cases_return_purpose_built_results() {
         .expect("the conversation should be visible");
     assert_eq!(details.role(), MembershipRole::Owner);
 
-    let conversations =
-        block_on(chat.list_conversations(actor)).expect("conversations should be readable");
+    let conversations = block_on(chat.list_conversations(actor, ListConversations::new()))
+        .expect("conversations should be readable");
     assert_eq!(conversations.conversations().len(), 1);
 
-    let members =
-        block_on(chat.list_members(actor, conversation_id)).expect("members should be readable");
+    let members = block_on(chat.list_members(actor, ListMembers::new(conversation_id)))
+        .expect("members should be readable");
     assert_eq!(members.members()[0].user().display_name().as_str(), "Yuito");
 
     let messages = block_on(chat.list_messages(actor, ListMessages::new(conversation_id)))

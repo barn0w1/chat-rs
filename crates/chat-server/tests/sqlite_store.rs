@@ -1,7 +1,8 @@
 use chat::{
     AddMember, AddMemberError, Chat, CreateConversation, CreateConversationError, CreateUser,
-    GetConversationError, ListMembersError, ListMessages, ListMessagesError, MembershipRole,
-    PostMessage, PostMessageError, RemoveMember, RemoveMemberError,
+    GetConversationError, ListConversations, ListMembers, ListMembersError, ListMessages,
+    ListMessagesError, MembershipRole, PostMessage, PostMessageError, RemoveMember,
+    RemoveMemberError,
 };
 use chat_server::sqlite::SqliteStore;
 use tempfile::TempDir;
@@ -71,7 +72,7 @@ async fn complete_workflow_persists_and_queries_chat_state() {
     );
 
     let conversations = chat
-        .list_conversations(member)
+        .list_conversations(member, ListConversations::new())
         .await
         .expect("visible conversations can be listed");
     assert_eq!(conversations.conversations().len(), 1);
@@ -81,7 +82,7 @@ async fn complete_workflow_persists_and_queries_chat_state() {
     );
 
     let members = chat
-        .list_members(member, conversation)
+        .list_members(member, ListMembers::new(conversation))
         .await
         .expect("members can list conversation members");
     assert_eq!(members.members().len(), 2);
@@ -143,7 +144,8 @@ async fn complete_workflow_persists_and_queries_chat_state() {
         Err(PostMessageError::AuthorNotMember)
     );
     assert_eq!(
-        chat.list_members(member, conversation).await,
+        chat.list_members(member, ListMembers::new(conversation))
+            .await,
         Err(ListMembersError::NotFound)
     );
 
@@ -277,9 +279,96 @@ async fn competing_add_member_operations_are_atomic() {
     assert_eq!(duplicate_errors, 1);
 
     let members = chat
-        .list_members(owner, conversation)
+        .list_members(owner, ListMembers::new(conversation))
         .await
         .expect("membership state remains valid");
     assert_eq!(members.members().len(), 2);
+    database.store.close().await;
+}
+
+#[tokio::test]
+async fn conversation_and_member_pages_use_stable_keyset_cursors() {
+    let database = TestDatabase::open().await;
+    let chat = Chat::new(database.store.clone());
+    let owner = chat
+        .create_user(CreateUser::new("Owner"))
+        .await
+        .expect("owner can be created")
+        .user()
+        .id();
+    let first_member = chat
+        .create_user(CreateUser::new("First member"))
+        .await
+        .expect("member can be created")
+        .user()
+        .id();
+    let second_member = chat
+        .create_user(CreateUser::new("Second member"))
+        .await
+        .expect("member can be created")
+        .user()
+        .id();
+
+    let mut conversation_ids = Vec::new();
+    for title in ["First", "Second", "Third"] {
+        conversation_ids.push(
+            chat.create_conversation(owner, CreateConversation::new(title))
+                .await
+                .expect("conversation can be created")
+                .conversation()
+                .id(),
+        );
+    }
+    let target = conversation_ids[2];
+    chat.add_member(owner, AddMember::new(target, first_member))
+        .await
+        .expect("member can be added");
+    chat.add_member(owner, AddMember::new(target, second_member))
+        .await
+        .expect("member can be added");
+
+    let first_page = chat
+        .list_conversations(owner, ListConversations::new().limit(2))
+        .await
+        .expect("first page can be read");
+    assert_eq!(
+        first_page
+            .conversations()
+            .iter()
+            .map(|entry| entry.conversation().id())
+            .collect::<Vec<_>>(),
+        [conversation_ids[2], conversation_ids[1]]
+    );
+    let cursor = first_page.next_cursor().expect("an older page exists");
+    let second_page = chat
+        .list_conversations(owner, ListConversations::new().before(cursor).limit(2))
+        .await
+        .expect("second page can be read");
+    assert_eq!(
+        second_page.conversations()[0].conversation().id(),
+        conversation_ids[0]
+    );
+    assert_eq!(second_page.next_cursor(), None);
+
+    let first_page = chat
+        .list_members(owner, ListMembers::new(target).limit(2))
+        .await
+        .expect("first member page can be read");
+    assert_eq!(
+        first_page
+            .members()
+            .iter()
+            .map(|member| member.user().id())
+            .collect::<Vec<_>>(),
+        [owner, first_member]
+    );
+    let cursor = first_page.next_cursor().expect("another member exists");
+    let second_page = chat
+        .list_members(owner, ListMembers::new(target).after(cursor).limit(2))
+        .await
+        .expect("second member page can be read");
+    assert_eq!(second_page.members()[0].user().id(), second_member);
+    assert_eq!(second_page.next_cursor(), None);
+
     database.store.close().await;
 }
