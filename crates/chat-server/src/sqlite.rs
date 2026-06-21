@@ -24,7 +24,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// A SQLite-backed implementation of the storage capabilities required by `chat`.
 #[derive(Clone, Debug)]
 pub struct SqliteStore {
-    pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
 }
 
 impl SqliteStore {
@@ -102,21 +102,21 @@ fn now_millis() -> Result<i64, InvalidStoredData> {
     i64::try_from(duration.as_millis()).map_err(|_| InvalidStoredData)
 }
 
-fn system_time_from_millis(value: i64) -> Result<SystemTime, InvalidStoredData> {
+pub(crate) fn system_time_from_millis(value: i64) -> Result<SystemTime, InvalidStoredData> {
     let millis = u64::try_from(value).map_err(|_| InvalidStoredData)?;
     UNIX_EPOCH
         .checked_add(Duration::from_millis(millis))
         .ok_or(InvalidStoredData)
 }
 
-fn is_unique_violation(error: &sqlx::Error) -> bool {
+pub(crate) fn is_unique_violation(error: &sqlx::Error) -> bool {
     error
         .as_database_error()
         .is_some_and(|database_error| database_error.is_unique_violation())
 }
 
 #[derive(Clone, Copy, Debug)]
-struct InvalidStoredData;
+pub(crate) struct InvalidStoredData;
 
 #[cfg(test)]
 mod tests {

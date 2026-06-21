@@ -100,6 +100,14 @@ sessions, CSRF protection, and `/api/v1` JSON conventions. Then expose the chat
 use cases through authenticated HTTP routes. WebSocket remains a later live
 event channel rather than a second command protocol.
 
+Status: increment 4A is implemented and passes formatting, compilation, locked
+Clippy with warnings denied, and all workspace tests on Rust 1.96. It adds a
+method-independent verified identity boundary, standards-based OIDC
+authorization-code login with PKCE, SQLite-backed opaque sessions, secure
+cookie policy, Origin and CSRF checks, and the `/api/v1/session` resource.
+Real-provider and browser integration checks remain operational verification;
+increment 4B will expose chat use cases.
+
 ### 5. Real-time delivery
 
 Add WebSocket connection management, bounded outbound queues, backpressure,
@@ -124,9 +132,14 @@ and verified. The implementation decisions are recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md) and
 [`docs/server-foundation.md`](docs/server-foundation.md).
 
-The next implementation increment is authentication and the versioned HTTP
-protocol foundation. Its researched scope and acceptance criteria are recorded
-in [`docs/authentication-protocol.md`](docs/authentication-protocol.md).
+The authentication and versioned HTTP protocol foundation is implemented and
+mechanically verified. Its design and implemented contract are recorded in
+[`docs/authentication-protocol.md`](docs/authentication-protocol.md).
+
+The next feature increment is 4B: map the existing chat commands and queries to
+authenticated HTTP routes. Before implementation, each endpoint should have a
+small reviewed contract covering actor derivation, request and response DTOs,
+domain-error mapping, pagination, body limits, and transaction ownership.
 
 ## Development
 
@@ -146,11 +159,17 @@ cargo run -p chat-server
 ```
 
 Configuration is provided through `CHAT_LISTEN_ADDR`, `CHAT_DATABASE_PATH`,
-and `RUST_LOG`. For example:
+`CHAT_PUBLIC_URL`, and `RUST_LOG`. OIDC login is enabled by setting
+`CHAT_OIDC_ISSUER` and `CHAT_OIDC_CLIENT_ID` together; a provider that requires
+confidential-client authentication also uses `CHAT_OIDC_CLIENT_SECRET`.
+For example:
 
 ```sh
 CHAT_LISTEN_ADDR=127.0.0.1:4000 \
 CHAT_DATABASE_PATH=var/chat.sqlite3 \
+CHAT_PUBLIC_URL=https://chat.example.com \
+CHAT_OIDC_ISSUER=https://accounts.example.com \
+CHAT_OIDC_CLIENT_ID=chat \
 RUST_LOG=chat_server=debug,tower_http=info \
 cargo run -p chat-server
 ```
