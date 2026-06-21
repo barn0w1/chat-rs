@@ -100,10 +100,13 @@ sessions, CSRF protection, and `/api/v1` JSON conventions. Then expose the chat
 use cases through authenticated HTTP routes. WebSocket remains a later live
 event channel rather than a second command protocol.
 
-Status: increment 4A is implemented. It adds a method-independent verified
-identity boundary, standards-based OIDC authorization-code login with PKCE,
-SQLite-backed opaque sessions, secure cookie policy, Origin and CSRF checks,
-and the `/api/v1/session` resource. Increment 4B will expose chat use cases.
+Status: increment 4A is implemented and passes formatting, compilation, locked
+Clippy with warnings denied, and all workspace tests on Rust 1.96. It adds a
+method-independent verified identity boundary, standards-based OIDC
+authorization-code login with PKCE, SQLite-backed opaque sessions, secure
+cookie policy, Origin and CSRF checks, and the `/api/v1/session` resource.
+Real-provider and browser integration checks remain operational verification;
+increment 4B will expose chat use cases.
 
 ### 5. Real-time delivery
 
@@ -129,10 +132,14 @@ and verified. The implementation decisions are recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md) and
 [`docs/server-foundation.md`](docs/server-foundation.md).
 
-The current verification target is authentication and the versioned HTTP
-protocol foundation. Its design and implemented contract are recorded in
-[`docs/authentication-protocol.md`](docs/authentication-protocol.md). The next
-feature increment maps existing chat use cases to authenticated HTTP routes.
+The authentication and versioned HTTP protocol foundation is implemented and
+mechanically verified. Its design and implemented contract are recorded in
+[`docs/authentication-protocol.md`](docs/authentication-protocol.md).
+
+The next feature increment is 4B: map the existing chat commands and queries to
+authenticated HTTP routes. Before implementation, each endpoint should have a
+small reviewed contract covering actor derivation, request and response DTOs,
+domain-error mapping, pagination, body limits, and transaction ownership.
 
 ## Development
 

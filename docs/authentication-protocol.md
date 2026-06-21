@@ -1,13 +1,14 @@
 # Authentication and Protocol Plan
 
-Status: Milestone 4A implemented; local Rust verification pending
+Status: Milestone 4A implemented and mechanically verified on Rust 1.96;
+real-provider and browser integration verification remains
 Date: 2026-06-21
 
 ## Scope Decision
 
 Milestone 4 is split into two reviewable increments.
 
-- **4A, next implementation:** verified identity boundary, OIDC adapter,
+- **4A, implemented:** verified identity boundary, OIDC adapter,
   account resolution, server-side sessions, cookie and CSRF handling, and the
   versioned HTTP protocol foundation.
 - **4B, subsequent implementation:** authenticated HTTP routes that translate
@@ -659,7 +660,10 @@ reviewable before chat HTTP routes are exposed.
 - `/api/v1/session` follows the documented JSON and problem contracts
 - secrets and internal errors never enter HTTP bodies or logs
 - health behavior and graceful shutdown remain unchanged
-- all workspace checks and real-provider manual verification pass
+- formatting, compilation, locked Clippy with warnings denied, and all
+  workspace tests pass
+- configured-provider and browser behavior pass manual integration verification
+  before production deployment
 
 ## Primary References
 
