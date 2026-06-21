@@ -13,6 +13,7 @@ mod create_conversation;
 mod create_user;
 mod event;
 mod get_conversation;
+mod get_message;
 mod id;
 mod list_conversations;
 mod list_members;
@@ -36,6 +37,7 @@ pub use create_conversation::{
 pub use create_user::{CreateUser, CreateUserError, CreateUserResult};
 pub use event::ChatEvent;
 pub use get_conversation::{ConversationDetails, GetConversationError};
+pub use get_message::GetMessageError;
 pub use id::{ConversationId, InvalidId, MessageId, UserId};
 pub use list_conversations::{
     ConversationPage, ConversationSummary, DEFAULT_CONVERSATION_PAGE_SIZE, ListConversations,
@@ -54,7 +56,7 @@ pub use post_message::{PostMessage, PostMessageError, PostMessageResult};
 pub use remove_member::{RemoveMember, RemoveMemberError, RemoveMemberResult};
 pub use store::{
     AddMemberStore, CreateConversationStore, CreateUserStore, GetConversationStore,
-    ListConversationsStore, ListMembersStore, ListMessagesStore, PostMessageStore, ReadStore,
-    RemoveMemberStore, WriteStore,
+    GetMessageStore, ListConversationsStore, ListMembersStore, ListMessagesStore, PostMessageStore,
+    ReadStore, RemoveMemberStore, WriteStore,
 };
 pub use user::{DisplayName, DisplayNameError, MAX_DISPLAY_NAME_CHARS, NewUser, User};

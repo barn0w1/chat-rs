@@ -101,12 +101,14 @@ sessions, CSRF protection, and `/api/v1` JSON conventions. Then expose the chat
 use cases through authenticated HTTP routes. WebSocket remains a later live
 event channel rather than a second command protocol.
 
-Status: increments 4A and 4B.1 are implemented. The server has a
+Status: increments 4A, 4B.1, and 4B.2 are implemented. The server has a
 method-independent verified identity boundary, standards-based OIDC
 authorization-code login with PKCE, SQLite-backed opaque sessions, secure
 cookie policy, Origin and CSRF checks, and authenticated read resources for
-conversations, members, and messages. Real-provider and browser integration
-checks remain operational verification. Mutation resources remain for 4B.2.
+conversations, members, and messages. Authenticated clients can create
+conversations, post messages, and retrieve individual messages through strict,
+bounded JSON routes. Real-provider and browser integration checks remain
+operational verification.
 
 ### 5. Real-time delivery
 
@@ -138,11 +140,13 @@ mechanically verified. Its design and implemented contract are recorded in
 
 The authenticated HTTP API plan is recorded in
 [`docs/http-chat-api-plan.md`](docs/http-chat-api-plan.md). Increment 4B.1 adds
-the shared HTTP boundary and authenticated, paginated read routes. The next
-increment is 4B.2: conversation creation and message posting with explicit
-request DTOs, body limits, Origin and CSRF enforcement, and domain-error
-mapping. Retry deduplication, membership workflow, server admission policy,
-and WebSocket delivery remain separately planned work.
+the shared HTTP boundary and authenticated, paginated read routes. Increment
+4B.2 adds conversation creation, message posting, individual message retrieval,
+strict request DTOs, body limits, Origin and CSRF enforcement, and finite
+domain-error mapping. Its reviewed implementation plan is recorded in
+[`docs/http-chat-mutations-plan.md`](docs/http-chat-mutations-plan.md). Retry
+deduplication, membership workflow, server admission policy, and WebSocket
+delivery remain separately planned work.
 
 ## Development
 

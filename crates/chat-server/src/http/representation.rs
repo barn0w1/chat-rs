@@ -1,11 +1,15 @@
 use axum::{
     Json,
-    http::{HeaderValue, header::CACHE_CONTROL},
+    http::{
+        HeaderValue, StatusCode,
+        header::{CACHE_CONTROL, LOCATION},
+    },
     response::{IntoResponse, Response},
 };
 use chat::{
-    ConversationDetails, ConversationMember, ConversationPage, ConversationSummary, MemberPage,
-    MembershipRole, Message, MessagePage, User,
+    Conversation, ConversationDetails, ConversationMember, ConversationPage, ConversationSummary,
+    CreateConversationResult, MemberPage, MembershipRole, Message, MessagePage, PostMessageResult,
+    User,
 };
 use serde::Serialize;
 
@@ -45,24 +49,24 @@ struct ConversationRepresentation {
 }
 
 impl ConversationRepresentation {
-    fn try_from_summary(summary: &ConversationSummary) -> Result<Self, Problem> {
-        let conversation = summary.conversation();
+    fn try_from_conversation(
+        conversation: &Conversation,
+        role: MembershipRole,
+    ) -> Result<Self, Problem> {
         Ok(Self {
             id: conversation.id().get().to_string(),
             title: conversation.title().as_str().to_owned(),
             created_at_ms: timestamp_millis(conversation.created_at())?,
-            role: role_name(summary.role()),
+            role: role_name(role),
         })
     }
 
+    fn try_from_summary(summary: &ConversationSummary) -> Result<Self, Problem> {
+        Self::try_from_conversation(summary.conversation(), summary.role())
+    }
+
     fn try_from_details(details: &ConversationDetails) -> Result<Self, Problem> {
-        let conversation = details.conversation();
-        Ok(Self {
-            id: conversation.id().get().to_string(),
-            title: conversation.title().as_str().to_owned(),
-            created_at_ms: timestamp_millis(conversation.created_at())?,
-            role: role_name(details.role()),
-        })
+        Self::try_from_conversation(details.conversation(), details.role())
     }
 }
 
@@ -88,6 +92,17 @@ pub(super) fn conversation(details: &ConversationDetails) -> Result<Response, Pr
     Ok(json_no_store(ConversationRepresentation::try_from_details(
         details,
     )?))
+}
+
+pub(super) fn created_conversation(result: &CreateConversationResult) -> Result<Response, Problem> {
+    let conversation = ConversationRepresentation::try_from_conversation(
+        result.conversation(),
+        MembershipRole::Owner,
+    )?;
+    created_json(
+        format!("/api/v1/conversations/{}", result.conversation().id()),
+        conversation,
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -146,6 +161,25 @@ impl MessageRepresentation {
     }
 }
 
+pub(super) fn message(message: &Message) -> Result<Response, Problem> {
+    Ok(json_no_store(MessageRepresentation::try_from_message(
+        message,
+    )?))
+}
+
+pub(super) fn created_message(result: &PostMessageResult) -> Result<Response, Problem> {
+    let message = result.message();
+    let representation = MessageRepresentation::try_from_message(message)?;
+    created_json(
+        format!(
+            "/api/v1/conversations/{}/messages/{}",
+            message.conversation_id(),
+            message.id()
+        ),
+        representation,
+    )
+}
+
 #[derive(Debug, Serialize)]
 struct MessagePageRepresentation {
     messages: Vec<MessageRepresentation>,
@@ -170,6 +204,19 @@ pub(super) fn json_no_store<T: Serialize>(value: T) -> Response {
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
+}
+
+fn created_json<T: Serialize>(location: String, value: T) -> Result<Response, Problem> {
+    let location = HeaderValue::from_str(&location).map_err(|error| {
+        tracing::error!(error = %error, "created resource location is invalid");
+        Problem::internal()
+    })?;
+    let mut response = (StatusCode::CREATED, Json(value)).into_response();
+    response.headers_mut().insert(LOCATION, location);
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 fn role_name(role: MembershipRole) -> &'static str {

@@ -2,9 +2,9 @@ use std::future::Future;
 
 use crate::{
     AddMemberError, ConversationDetails, ConversationId, ConversationPage, CreateConversationError,
-    CreateUserError, CreatedConversation, GetConversationError, ListConversations,
+    CreateUserError, CreatedConversation, GetConversationError, GetMessageError, ListConversations,
     ListConversationsError, ListMembers, ListMembersError, ListMessages, ListMessagesError,
-    MemberPage, Membership, MembershipRemoval, Message, MessagePage, NewConversation,
+    MemberPage, Membership, MembershipRemoval, Message, MessageId, MessagePage, NewConversation,
     NewMembership, NewMessage, NewUser, PostMessageError, RemoveMemberError, User, UserId,
 };
 
@@ -78,6 +78,17 @@ pub trait GetConversationStore: Send + Sync {
     ) -> impl Future<Output = Result<ConversationDetails, GetConversationError>> + Send;
 }
 
+/// Store capability required to read one message.
+pub trait GetMessageStore: Send + Sync {
+    /// Returns a message visible to `actor_id` under the requested conversation.
+    fn get_message(
+        &self,
+        actor_id: UserId,
+        conversation_id: ConversationId,
+        message_id: MessageId,
+    ) -> impl Future<Output = Result<Message, GetMessageError>> + Send;
+}
+
 /// Store capability required to list a user's conversations.
 pub trait ListConversationsStore: Send + Sync {
     /// Returns conversations visible to `actor_id`.
@@ -110,11 +121,19 @@ pub trait ListMessagesStore: Send + Sync {
 
 /// Complete set of query capabilities currently required by the core.
 pub trait ReadStore:
-    GetConversationStore + ListConversationsStore + ListMembersStore + ListMessagesStore
+    GetConversationStore
+    + GetMessageStore
+    + ListConversationsStore
+    + ListMembersStore
+    + ListMessagesStore
 {
 }
 
 impl<T> ReadStore for T where
-    T: GetConversationStore + ListConversationsStore + ListMembersStore + ListMessagesStore
+    T: GetConversationStore
+        + GetMessageStore
+        + ListConversationsStore
+        + ListMembersStore
+        + ListMessagesStore
 {
 }

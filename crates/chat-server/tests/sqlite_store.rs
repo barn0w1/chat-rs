@@ -1,7 +1,7 @@
 use chat::{
     AddMember, AddMemberError, Chat, CreateConversation, CreateConversationError, CreateUser,
-    GetConversationError, ListConversations, ListMembers, ListMembersError, ListMessages,
-    ListMessagesError, MembershipRole, PostMessage, PostMessageError, RemoveMember,
+    GetConversationError, GetMessageError, ListConversations, ListMembers, ListMembersError,
+    ListMessages, ListMessagesError, MembershipRole, PostMessage, PostMessageError, RemoveMember,
     RemoveMemberError,
 };
 use chat_server::sqlite::SqliteStore;
@@ -106,11 +106,41 @@ async fn complete_workflow_persists_and_queries_chat_state() {
         Err(ListMessagesError::NotFound)
     );
 
+    let mut posted = Vec::new();
     for body in ["first", "second", "third"] {
-        chat.post_message(member, PostMessage::new(conversation, body))
-            .await
-            .expect("member can post a message");
+        posted.push(
+            chat.post_message(member, PostMessage::new(conversation, body))
+                .await
+                .expect("member can post a message")
+                .message()
+                .id(),
+        );
     }
+
+    let message = chat
+        .get_message(member, conversation, posted[1])
+        .await
+        .expect("a member can read one message");
+    assert_eq!(message.body().as_str(), "second");
+    assert_eq!(
+        chat.get_message(outsider, conversation, posted[1]).await,
+        Err(GetMessageError::NotFound)
+    );
+    let other_conversation = chat
+        .create_conversation(owner, CreateConversation::new("Other"))
+        .await
+        .expect("another conversation can be created")
+        .conversation()
+        .id();
+    assert_eq!(
+        chat.get_message(owner, other_conversation, posted[1]).await,
+        Err(GetMessageError::NotFound)
+    );
+    let missing_message = chat::MessageId::new(i64::MAX).expect("fixture ID is positive");
+    assert_eq!(
+        chat.get_message(owner, conversation, missing_message).await,
+        Err(GetMessageError::NotFound)
+    );
 
     let first_page = chat
         .list_messages(member, ListMessages::new(conversation).limit(2))
@@ -160,6 +190,15 @@ async fn complete_workflow_persists_and_queries_chat_state() {
         .await
         .expect("committed messages survive reopening");
     assert_eq!(messages.messages().len(), 3);
+    assert_eq!(
+        reopened_chat
+            .get_message(owner, conversation, posted[0])
+            .await
+            .expect("a committed message survives reopening")
+            .body()
+            .as_str(),
+        "first"
+    );
     reopened.close().await;
 }
 

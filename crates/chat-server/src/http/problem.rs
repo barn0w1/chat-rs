@@ -1,5 +1,6 @@
 use axum::{
     Json,
+    extract::rejection::JsonRejection,
     http::{
         HeaderValue, StatusCode,
         header::{CACHE_CONTROL, CONTENT_TYPE, WWW_AUTHENTICATE},
@@ -44,17 +45,49 @@ impl Problem {
     }
 
     pub(crate) fn validation(field: &'static str, max: usize) -> Self {
+        Self::field_validation(field, "out_of_range", Some(max))
+    }
+
+    pub(crate) fn field_validation(
+        field: &'static str,
+        code: &'static str,
+        max: Option<usize>,
+    ) -> Self {
         let mut problem = Self::new(
             "urn:chat-rs:problem:validation-failed",
             "Request validation failed",
             StatusCode::UNPROCESSABLE_ENTITY,
         );
-        problem.errors.push(FieldError {
-            field,
-            code: "out_of_range",
-            max,
-        });
+        problem.errors.push(FieldError { field, code, max });
         problem
+    }
+
+    pub(crate) fn content_too_large() -> Self {
+        Self::new(
+            "urn:chat-rs:problem:content-too-large",
+            "Request content is too large",
+            StatusCode::PAYLOAD_TOO_LARGE,
+        )
+    }
+
+    pub(crate) fn unsupported_media_type() -> Self {
+        Self::new(
+            "urn:chat-rs:problem:unsupported-media-type",
+            "Request media type is not supported",
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        )
+    }
+
+    pub(crate) fn from_json_rejection(rejection: JsonRejection) -> Self {
+        match rejection.status() {
+            StatusCode::PAYLOAD_TOO_LARGE => Self::content_too_large(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE => Self::unsupported_media_type(),
+            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => Self::invalid_request(),
+            status => {
+                tracing::error!(%status, "unexpected JSON extraction failure");
+                Self::internal()
+            }
+        }
     }
 
     pub(crate) fn not_found() -> Self {
@@ -140,5 +173,6 @@ struct ProblemDocument {
 struct FieldError {
     field: &'static str,
     code: &'static str,
-    max: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max: Option<usize>,
 }

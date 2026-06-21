@@ -21,4 +21,5 @@ target
 #.idea/
 
 /note/
+/archive/
 *.jp.md
