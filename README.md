@@ -91,8 +91,14 @@ shutdown pass.
 ### 4. Authentication and protocol
 
 Define the same-origin browser authentication flow and a versioned wire
-protocol. HTTP and WebSocket inputs will be translated into core use-case
-requests; results and events will be translated into client messages.
+protocol. HTTP requests will be translated into core use-case commands and
+queries. A later WebSocket channel will deliver live results and events.
+
+Plan: implement this milestone in two increments. First establish a
+method-independent verified-identity boundary, an OIDC adapter, server-side
+sessions, CSRF protection, and `/api/v1` JSON conventions. Then expose the chat
+use cases through authenticated HTTP routes. WebSocket remains a later live
+event channel rather than a second command protocol.
 
 ### 5. Real-time delivery
 
@@ -118,10 +124,9 @@ and verified. The implementation decisions are recorded in
 [`docs/sqlite-persistence.md`](docs/sqlite-persistence.md) and
 [`docs/server-foundation.md`](docs/server-foundation.md).
 
-After verification, the next planning milestone is authentication and the
-versioned application protocol. That work should establish identities,
-authorization boundaries, command and result envelopes, reconnect semantics,
-and error mapping before adding WebSocket connection management.
+The next implementation increment is authentication and the versioned HTTP
+protocol foundation. Its researched scope and acceptance criteria are recorded
+in [`docs/authentication-protocol.md`](docs/authentication-protocol.md).
 
 ## Development
 
