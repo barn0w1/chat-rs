@@ -1,6 +1,6 @@
 # Authentication and Protocol Plan
 
-Status: proposed for the next implementation milestone
+Status: Milestone 4A implemented; local Rust verification pending
 Date: 2026-06-21
 
 ## Scope Decision
@@ -185,17 +185,20 @@ For every session:
 - generate a 32-byte token from the operating system CSPRNG
 - encode it as unpadded URL-safe Base64 for the cookie
 - store only `SHA-256(token)` in SQLite
-- generate a separate 32-byte CSRF token and store only its hash
+- generate and store a separate 32-byte CSRF token
 - bind the session to one `UserId`
 - use a fixed absolute lifetime, initially 30 days
 - allow multiple sessions for multiple browsers/devices
 - reject expired or missing sessions as unauthenticated
 - revoke the current session on logout
 
-The raw token is a meaningless bearer secret. Hashing it before persistence
-prevents the database value itself from being usable as the cookie. A random
-token-generation failure is an operation failure; never fall back to predictable
-data.
+The raw session token is a meaningless bearer secret. Hashing it before
+persistence prevents the database value itself from being usable as the
+cookie. The CSRF value is stored in recoverable form because the session
+resource must return the same synchronizer token to same-origin JavaScript.
+It is not sufficient to authenticate a request without the HttpOnly session
+cookie. A random-token generation failure is an operation failure; never fall
+back to predictable data.
 
 Do not add idle expiry or write `last_seen` on every request in 4A. That would
 turn reads and WebSocket traffic into continuous SQLite writes. Absolute expiry
@@ -242,8 +245,8 @@ must require a synchronizer CSRF token.
 - `GET /api/v1/session` returns the raw CSRF token to same-origin JavaScript.
 - The web client keeps it in memory and sends it as `X-CSRF-Token` on every
   unsafe API request.
-- The server hashes it and compares the fixed-size digest with the session's
-  stored digest using best-effort constant-time equality.
+- The server decodes it and compares the fixed-size value with the session's
+  stored value using best-effort constant-time equality.
 - The token never appears in a URL, cookie, or log.
 - Login creates a new session and therefore rotates the CSRF token.
 
@@ -298,7 +301,7 @@ auth_identities
 
 auth_sessions
 |-- token_hash BLOB PRIMARY KEY, exactly 32 bytes
-|-- csrf_token_hash BLOB, exactly 32 bytes
+|-- csrf_token BLOB, exactly 32 bytes
 |-- user_id INTEGER -> users.id
 |-- created_at_ms INTEGER
 `-- expires_at_ms INTEGER
@@ -317,9 +320,9 @@ Add indexes on `auth_identities(user_id)`, `auth_sessions(user_id)`,
 Use strict tables, foreign keys, nonnegative timestamp checks, and
 `expires_at_ms > created_at_ms` checks.
 
-Do not persist raw session, CSRF, state, or browser-binding tokens. Nonces and
-PKCE verifiers must be recoverable for the provider callback and remain in the
-short-lived transaction table.
+Do not persist raw session, state, or browser-binding tokens. The CSRF token,
+nonce, and PKCE verifier must be recoverable for their protocol steps. They are
+not authentication bearer credentials by themselves.
 
 ## Versioned HTTP Protocol
 
@@ -505,18 +508,13 @@ Keep implementation inside `chat-server`:
 ```text
 crates/chat-server/src/
 |-- app.rs
-|-- auth.rs                 # AuthenticatedUser and identity/session service
+|-- auth.rs                 # verified identity and session service
 |-- auth/
 |   |-- cookie.rs           # cookie construction and parsing policy
 |   |-- oidc.rs             # provider adapter and redirect flow
 |   |-- session.rs          # opaque token and CSRF handling
 |   `-- store.rs            # auth persistence operations
 |-- config.rs
-|-- http.rs                 # /api/v1 router
-|-- http/
-|   |-- problem.rs          # RFC 9457 responses and mappings
-|   |-- representation.rs   # explicit transport DTOs
-|   `-- session.rs          # session resource handlers
 |-- lib.rs
 |-- main.rs
 |-- server.rs
@@ -524,8 +522,9 @@ crates/chat-server/src/
 `-- sqlite/
 ```
 
-Exact file splitting can follow code size. Module ownership matters more than
-creating every listed file immediately. `main.rs` remains the composition root.
+Exact file splitting follows code size. Module ownership matters more than
+creating every listed file immediately. `server.rs` is the runtime composition
+root; `main.rs` is limited to process configuration, telemetry, and exit status.
 
 ## Test Plan
 
@@ -548,7 +547,7 @@ creating every listed file immediately. `main.rs` remains the composition root.
 ### Sessions
 
 - tokens contain 256 random bits before encoding
-- only hashes are persisted
+- raw session bearer values are never persisted
 - valid, expired, malformed, missing, and revoked sessions
 - session rotation on login and idempotent logout
 - independent browser sessions for one user
@@ -631,8 +630,8 @@ without exposing provider types to other modules.
 - apply CSRF, Origin, no-store, and problem mappings
 - compose auth state into the router without changing health behavior
 
-Completion: a browser session has an explicit tested lifecycle and handlers see
-only `AuthenticatedUser`.
+Completion: a browser session has an explicit tested lifecycle and application
+handlers derive their actor only from the authenticated request context.
 
 ### Slice 6: Verification and documentation
 
