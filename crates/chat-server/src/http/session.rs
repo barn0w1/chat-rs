@@ -5,7 +5,7 @@ use axum::{
     extract::{Query, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
-        header::{CACHE_CONTROL, LOCATION, ORIGIN, SET_COOKIE},
+        header::{CACHE_CONTROL, LOCATION, SET_COOKIE},
     },
     response::{IntoResponse, Response},
     routing::get,
@@ -15,12 +15,10 @@ use serde::Deserialize;
 use crate::{app::AppState, auth::AuthError};
 
 use super::{
-    authentication::{AuthenticatedSessionRequest, cookie_value},
+    authentication::{AuthenticatedSessionRequest, CSRF_HEADER, cookie_value, valid_origin},
     problem::Problem,
     representation::{SessionRepresentation, UserRepresentation, json_no_store},
 };
-
-const CSRF_HEADER: &str = "x-csrf-token";
 
 pub(super) fn routes(oidc_enabled: bool) -> Router<AppState> {
     let app = Router::new().route("/api/v1/session", get(get_session).delete(delete_session));
@@ -157,13 +155,6 @@ async fn complete_oidc(
             Some(state.cookies.remove_login_cookie()),
         ],
     )
-}
-
-fn valid_origin(headers: &HeaderMap, expected: &str) -> bool {
-    headers
-        .get(ORIGIN)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value == expected)
 }
 
 fn empty_with_cookie(status: StatusCode, cookie: cookie::Cookie<'static>) -> Response {

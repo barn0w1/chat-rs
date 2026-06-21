@@ -66,12 +66,16 @@ mod tests {
         body::{Body, to_bytes},
         http::{
             Method, Request,
-            header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, ORIGIN, SET_COOKIE, WWW_AUTHENTICATE},
+            header::{
+                CACHE_CONTROL, CONTENT_TYPE, COOKIE, LOCATION, ORIGIN, SET_COOKIE, WWW_AUTHENTICATE,
+            },
         },
         response::Response,
     };
     use chat::{
-        AddMember, CreateConversation, CreateUser, MAX_CONVERSATION_PAGE_SIZE, PostMessage,
+        AddMember, CreateConversation, CreateUser, ListConversations, ListMessages,
+        MAX_CONVERSATION_PAGE_SIZE, MAX_CONVERSATION_TITLE_CHARS, MAX_MESSAGE_BODY_CHARS,
+        PostMessage,
     };
     use serde_json::Value;
     use tempfile::TempDir;
@@ -119,11 +123,23 @@ mod tests {
     }
 
     async fn session_cookie(store: &SqliteStore, user_id: chat::UserId) -> String {
+        session_credentials(store, user_id).await.0
+    }
+
+    async fn session_credentials(store: &SqliteStore, user_id: chat::UserId) -> (String, String) {
+        let now = SystemTime::now();
         let issued = AuthStore::new(store.clone())
-            .issue_session(user_id, None, SystemTime::now())
+            .issue_session(user_id, None, now)
             .await
             .expect("test session can be issued");
-        format!("chat_session={}", issued.session_token())
+        let token = issued.session_token();
+        let csrf = AuthStore::new(store.clone())
+            .resolve_session(&token, now)
+            .await
+            .expect("test session can be resolved")
+            .expect("test session exists")
+            .csrf_token();
+        (format!("chat_session={token}"), csrf)
     }
 
     fn authenticated_get(uri: &str, cookie: &str) -> Request<Body> {
@@ -131,6 +147,23 @@ mod tests {
             .uri(uri)
             .header(COOKIE, cookie)
             .body(Body::empty())
+            .expect("test request is valid")
+    }
+
+    fn authenticated_json_post(
+        uri: &str,
+        cookie: &str,
+        csrf: &str,
+        body: impl Into<Body>,
+    ) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header(CONTENT_TYPE, "application/json")
+            .header(COOKIE, cookie)
+            .header(ORIGIN, "http://127.0.0.1:3000")
+            .header("x-csrf-token", csrf)
+            .body(body.into())
             .expect("test request is valid")
     }
 
@@ -402,5 +435,342 @@ mod tests {
         assert_eq!(problem["errors"][0]["field"], "limit");
         assert_eq!(problem["errors"][0]["max"], MAX_CONVERSATION_PAGE_SIZE);
         store.close().await;
+    }
+
+    #[tokio::test]
+    async fn authenticated_mutations_create_retrievable_resources() {
+        let (app, store, _directory) = test_app().await;
+        let chat = Chat::new(store.clone());
+        let owner = chat
+            .create_user(CreateUser::new("Owner"))
+            .await
+            .expect("owner can be created")
+            .user()
+            .id();
+        let member = chat
+            .create_user(CreateUser::new("Member"))
+            .await
+            .expect("member can be created")
+            .user()
+            .id();
+        let outsider = chat
+            .create_user(CreateUser::new("Outsider"))
+            .await
+            .expect("outsider can be created")
+            .user()
+            .id();
+        let (owner_cookie, owner_csrf) = session_credentials(&store, owner).await;
+        let (member_cookie, member_csrf) = session_credentials(&store, member).await;
+        let (outsider_cookie, outsider_csrf) = session_credentials(&store, outsider).await;
+
+        let response = request(
+            app.clone(),
+            authenticated_json_post(
+                "/api/v1/conversations",
+                &owner_cookie,
+                &owner_csrf,
+                r#"{"title":"General"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+        let location = response.headers()[LOCATION]
+            .to_str()
+            .expect("location is valid")
+            .to_owned();
+        let conversation = response_json(response).await;
+        let conversation_id = conversation["id"]
+            .as_str()
+            .expect("conversation ID is a string")
+            .parse::<i64>()
+            .ok()
+            .and_then(|value| chat::ConversationId::new(value).ok())
+            .expect("conversation ID is valid");
+        assert_eq!(location, format!("/api/v1/conversations/{conversation_id}"));
+        assert_eq!(conversation["title"], "General");
+        assert_eq!(conversation["role"], "owner");
+
+        chat.add_member(owner, AddMember::new(conversation_id, member))
+            .await
+            .expect("member can be added");
+        let response = request(
+            app.clone(),
+            authenticated_json_post(
+                &format!("/api/v1/conversations/{conversation_id}/messages"),
+                &member_cookie,
+                &member_csrf,
+                r#"{"body":"hello"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+        let message_location = response.headers()[LOCATION]
+            .to_str()
+            .expect("location is valid")
+            .to_owned();
+        let created = response_json(response).await;
+        assert_eq!(created["conversation_id"], conversation_id.to_string());
+        assert_eq!(created["author_id"], member.to_string());
+        assert_eq!(created["body"], "hello");
+        assert_eq!(
+            message_location,
+            format!(
+                "/api/v1/conversations/{conversation_id}/messages/{}",
+                created["id"].as_str().expect("message ID is a string")
+            )
+        );
+
+        let fetched = request(
+            app.clone(),
+            authenticated_get(&message_location, &owner_cookie),
+        )
+        .await;
+        assert_eq!(fetched.status(), StatusCode::OK);
+        assert_eq!(response_json(fetched).await, created);
+
+        let hidden_read = request(
+            app.clone(),
+            authenticated_get(&message_location, &outsider_cookie),
+        )
+        .await;
+        assert_eq!(hidden_read.status(), StatusCode::NOT_FOUND);
+
+        let hidden_write = request(
+            app,
+            authenticated_json_post(
+                &format!("/api/v1/conversations/{conversation_id}/messages"),
+                &outsider_cookie,
+                &outsider_csrf,
+                r#"{"body":"denied"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(hidden_write.status(), StatusCode::NOT_FOUND);
+        store.close().await;
+    }
+
+    #[tokio::test]
+    async fn mutation_prerequisites_are_checked_before_json() {
+        let (app, store, _directory) = test_app().await;
+        let chat = Chat::new(store.clone());
+        let user = chat
+            .create_user(CreateUser::new("Alice"))
+            .await
+            .expect("user can be created")
+            .user()
+            .id();
+        let (cookie, csrf) = session_credentials(&store, user).await;
+
+        let unauthenticated = request(
+            app.clone(),
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/conversations")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from("{"))
+                .expect("test request is valid"),
+        )
+        .await;
+        assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+        let missing_csrf = request(
+            app.clone(),
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/conversations")
+                .header(CONTENT_TYPE, "application/json")
+                .header(COOKIE, &cookie)
+                .header(ORIGIN, "http://127.0.0.1:3000")
+                .body(Body::from("{"))
+                .expect("test request is valid"),
+        )
+        .await;
+        assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+
+        let wrong_origin = request(
+            app.clone(),
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/conversations")
+                .header(CONTENT_TYPE, "application/json")
+                .header(COOKIE, &cookie)
+                .header(ORIGIN, "https://attacker.example")
+                .header("x-csrf-token", &csrf)
+                .body(Body::from(r#"{"title":"Denied"}"#))
+                .expect("test request is valid"),
+        )
+        .await;
+        assert_eq!(wrong_origin.status(), StatusCode::FORBIDDEN);
+
+        let wrong_csrf = request(
+            app.clone(),
+            authenticated_json_post(
+                "/api/v1/conversations",
+                &cookie,
+                "invalid-token",
+                r#"{"title":"Denied"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(wrong_csrf.status(), StatusCode::FORBIDDEN);
+
+        let conversations = chat
+            .list_conversations(user, ListConversations::new())
+            .await
+            .expect("conversations can be listed");
+        assert!(conversations.conversations().is_empty());
+        store.close().await;
+    }
+
+    #[tokio::test]
+    async fn mutation_json_and_domain_errors_are_finite() {
+        let (app, store, _directory) = test_app().await;
+        let chat = Chat::new(store.clone());
+        let user = chat
+            .create_user(CreateUser::new("Alice"))
+            .await
+            .expect("user can be created")
+            .user()
+            .id();
+        let conversation = chat
+            .create_conversation(user, CreateConversation::new("General"))
+            .await
+            .expect("conversation can be created")
+            .conversation()
+            .id();
+        let (cookie, csrf) = session_credentials(&store, user).await;
+
+        let unsupported = request(
+            app.clone(),
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/conversations")
+                .header(COOKIE, &cookie)
+                .header(ORIGIN, "http://127.0.0.1:3000")
+                .header("x-csrf-token", &csrf)
+                .body(Body::from(r#"{"title":"No media type"}"#))
+                .expect("test request is valid"),
+        )
+        .await;
+        assert_problem(
+            unsupported,
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported-media-type",
+        )
+        .await;
+
+        for body in [
+            "{",
+            "{}",
+            r#"{"title":null}"#,
+            r#"{"title":1}"#,
+            r#"{"title":"General","unknown":true}"#,
+        ] {
+            let invalid = request(
+                app.clone(),
+                authenticated_json_post("/api/v1/conversations", &cookie, &csrf, body),
+            )
+            .await;
+            assert_problem(invalid, StatusCode::BAD_REQUEST, "invalid-request").await;
+        }
+
+        let oversized_body = serde_json::json!({ "body": "x".repeat(70 * 1024) }).to_string();
+        let oversized = request(
+            app.clone(),
+            authenticated_json_post(
+                &format!("/api/v1/conversations/{conversation}/messages"),
+                &cookie,
+                &csrf,
+                oversized_body,
+            ),
+        )
+        .await;
+        assert_problem(
+            oversized,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "content-too-large",
+        )
+        .await;
+
+        for (body, field, code, max) in [
+            (String::from(r#"{"title":"   "}"#), "title", "empty", None),
+            (
+                String::from(r#"{"title":"bad\nname"}"#),
+                "title",
+                "contains_control_character",
+                None,
+            ),
+            (
+                serde_json::json!({
+                    "title": "x".repeat(MAX_CONVERSATION_TITLE_CHARS + 1)
+                })
+                .to_string(),
+                "title",
+                "too_long",
+                Some(MAX_CONVERSATION_TITLE_CHARS),
+            ),
+        ] {
+            let response = request(
+                app.clone(),
+                authenticated_json_post("/api/v1/conversations", &cookie, &csrf, body),
+            )
+            .await;
+            assert_validation(response, field, code, max).await;
+        }
+
+        for (body, code, max) in [
+            (String::from(r#"{"body":"   "}"#), "empty", None),
+            (
+                serde_json::json!({ "body": "x".repeat(MAX_MESSAGE_BODY_CHARS + 1) }).to_string(),
+                "too_long",
+                Some(MAX_MESSAGE_BODY_CHARS),
+            ),
+        ] {
+            let response = request(
+                app.clone(),
+                authenticated_json_post(
+                    &format!("/api/v1/conversations/{conversation}/messages"),
+                    &cookie,
+                    &csrf,
+                    body,
+                ),
+            )
+            .await;
+            assert_validation(response, "body", code, max).await;
+        }
+
+        let conversations = chat
+            .list_conversations(user, ListConversations::new())
+            .await
+            .expect("conversations can be listed");
+        assert_eq!(conversations.conversations().len(), 1);
+        let messages = chat
+            .list_messages(user, ListMessages::new(conversation))
+            .await
+            .expect("messages can be listed");
+        assert!(messages.messages().is_empty());
+        store.close().await;
+    }
+
+    async fn assert_problem(response: Response, status: StatusCode, suffix: &str) {
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()[CONTENT_TYPE], "application/problem+json");
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+        let problem = response_json(response).await;
+        assert_eq!(problem["status"], status.as_u16());
+        assert_eq!(problem["type"], format!("urn:chat-rs:problem:{suffix}"));
+    }
+
+    async fn assert_validation(response: Response, field: &str, code: &str, max: Option<usize>) {
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let problem = response_json(response).await;
+        assert_eq!(problem["errors"][0]["field"], field);
+        assert_eq!(problem["errors"][0]["code"], code);
+        match max {
+            Some(max) => assert_eq!(problem["errors"][0]["max"], max),
+            None => assert!(problem["errors"][0].get("max").is_none()),
+        }
     }
 }

@@ -1,14 +1,14 @@
 use chat::{
     ConversationDetails, ConversationPage, GetConversationError, GetConversationStore,
-    ListConversations, ListConversationsError, ListConversationsStore, ListMembers,
-    ListMembersError, ListMembersStore, ListMessages, ListMessagesError, ListMessagesStore,
-    MAX_CONVERSATION_PAGE_SIZE, MAX_MEMBER_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE, MemberPage,
-    MessagePage, UserId,
+    GetMessageError, GetMessageStore, ListConversations, ListConversationsError,
+    ListConversationsStore, ListMembers, ListMembersError, ListMembersStore, ListMessages,
+    ListMessagesError, ListMessagesStore, MAX_CONVERSATION_PAGE_SIZE, MAX_MEMBER_PAGE_SIZE,
+    MAX_MESSAGE_PAGE_SIZE, MemberPage, MessagePage, UserId,
 };
 
 use super::{
     SqliteStore,
-    row::{ConversationWithRoleRow, OptionalConversationMemberRow, OptionalMessageRow},
+    row::{ConversationWithRoleRow, MessageRow, OptionalConversationMemberRow, OptionalMessageRow},
 };
 
 impl GetConversationStore for SqliteStore {
@@ -32,6 +32,36 @@ impl GetConversationStore for SqliteStore {
 
         row.into_details()
             .map_err(|_| GetConversationError::InvalidStoreResult)
+    }
+}
+
+impl GetMessageStore for SqliteStore {
+    async fn get_message(
+        &self,
+        actor_id: UserId,
+        conversation_id: chat::ConversationId,
+        message_id: chat::MessageId,
+    ) -> Result<chat::Message, GetMessageError> {
+        let row = sqlx::query_as::<_, MessageRow>(
+            "SELECT message.id, message.conversation_id, message.author_id, \
+                    message.body, message.created_at_ms \
+             FROM messages AS message \
+             JOIN conversation_members AS viewer \
+               ON viewer.conversation_id = message.conversation_id \
+             WHERE message.id = ? \
+               AND message.conversation_id = ? \
+               AND viewer.user_id = ?",
+        )
+        .bind(message_id.get())
+        .bind(conversation_id.get())
+        .bind(actor_id.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| GetMessageError::StoreUnavailable)?
+        .ok_or(GetMessageError::NotFound)?;
+
+        row.into_message()
+            .map_err(|_| GetMessageError::InvalidStoreResult)
     }
 }
 

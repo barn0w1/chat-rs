@@ -1,18 +1,18 @@
 # Authenticated HTTP Chat API Plan
 
-Status: Milestone 4B.1 implemented; 4B.2 planned
+Status: Milestones 4B.1 and 4B.2 implemented
 Date: 2026-06-21
 
 ## Decision Summary
 
 Milestone 4B is divided into reviewable increments.
 
-- **4B.1, next implementation:** refactor the HTTP boundary into focused
-  modules, add pagination contracts exposed by the first real transport, and
-  implement authenticated read endpoints for conversations, members, and
-  messages.
-- **4B.2:** add conversation creation and message posting with JSON body
-  extraction, CSRF and Origin enforcement, and creation responses.
+- **4B.1, implemented:** refactor the HTTP boundary into focused modules, add
+  pagination contracts exposed by the first real transport, and implement
+  authenticated read endpoints for conversations, members, and messages.
+- **4B.2, implemented:** add conversation creation and message posting with
+  JSON body extraction, CSRF and Origin enforcement, creation responses, and
+  individual message retrieval.
 - **4B.3 or a later reliability increment:** add atomic operation
   deduplication before the web client automatically retries mutations.
 - **Membership workflow, separately planned:** design invitations, acceptance,
@@ -373,7 +373,9 @@ the composition boundary when WebSocket delivery supplies the first consumer.
 
 ## Deferred Mutation Contract
 
-4B.2 is planned, not implemented in the next change:
+4B.2 is specified in
+[`http-chat-mutations-plan.md`](http-chat-mutations-plan.md) and implemented as
+the mutation increment following 4B.1:
 
 | Method | Path | Success |
 | --- | --- | --- |
