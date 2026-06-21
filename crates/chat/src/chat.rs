@@ -1,5 +1,5 @@
 /// The entry point for chat use cases.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Chat<S> {
     store: S,
 }

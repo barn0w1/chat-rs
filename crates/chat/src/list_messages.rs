@@ -193,18 +193,20 @@ mod tests {
         let actor = UserId::new(1).expect("the fixture ID is valid");
         let conversation = ConversationId::new(2).expect("the fixture ID is valid");
 
-        let error = futures_executor::block_on(
-            chat.list_messages(actor, ListMessages::new(conversation).limit(0)),
-        )
-        .expect_err("zero is not a valid page size");
+        for value in [0, MAX_MESSAGE_PAGE_SIZE + 1] {
+            let error = futures_executor::block_on(
+                chat.list_messages(actor, ListMessages::new(conversation).limit(value)),
+            )
+            .expect_err("the page size is outside the accepted range");
 
-        assert_eq!(
-            error,
-            ListMessagesError::InvalidPageSize {
-                value: 0,
-                max: MAX_MESSAGE_PAGE_SIZE,
-            }
-        );
+            assert_eq!(
+                error,
+                ListMessagesError::InvalidPageSize {
+                    value,
+                    max: MAX_MESSAGE_PAGE_SIZE,
+                }
+            );
+        }
         assert!(!called.load(Ordering::Relaxed));
     }
 }

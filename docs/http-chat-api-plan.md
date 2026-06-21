@@ -1,6 +1,6 @@
 # Authenticated HTTP Chat API Plan
 
-Status: proposed for Milestone 4B
+Status: Milestone 4B.1 implemented; 4B.2 planned
 Date: 2026-06-21
 
 ## Decision Summary
@@ -19,9 +19,9 @@ Milestone 4B is divided into reviewable increments.
   user discovery policy, and removal together before exposing membership
   mutations.
 
-The next code change is only 4B.1. This keeps the security and representation
-boundary independently reviewable and avoids changing core mutation contracts,
-deduplication persistence, and future event delivery in one patch.
+Increment 4B.1 implements the security and representation boundary as an
+independently reviewable change. It does not change core mutation contracts,
+deduplication persistence, or future event delivery.
 
 ## Current Constraints
 

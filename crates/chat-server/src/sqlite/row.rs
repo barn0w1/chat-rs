@@ -88,6 +88,51 @@ pub(super) struct ConversationMemberRow {
     pub(super) user_created_at_ms: i64,
 }
 
+#[derive(Debug, FromRow)]
+pub(super) struct OptionalConversationMemberRow {
+    pub(super) viewer_role: String,
+    pub(super) conversation_id: Option<i64>,
+    pub(super) user_id: Option<i64>,
+    pub(super) role: Option<String>,
+    pub(super) joined_at_ms: Option<i64>,
+    pub(super) display_name: Option<String>,
+    pub(super) user_created_at_ms: Option<i64>,
+}
+
+impl OptionalConversationMemberRow {
+    pub(super) fn into_member(self) -> Result<Option<ConversationMember>, InvalidStoredData> {
+        role_from_db(&self.viewer_role)?;
+        match (
+            self.conversation_id,
+            self.user_id,
+            self.role,
+            self.joined_at_ms,
+            self.display_name,
+            self.user_created_at_ms,
+        ) {
+            (None, None, None, None, None, None) => Ok(None),
+            (
+                Some(conversation_id),
+                Some(user_id),
+                Some(role),
+                Some(joined_at_ms),
+                Some(display_name),
+                Some(user_created_at_ms),
+            ) => ConversationMemberRow {
+                conversation_id,
+                user_id,
+                role,
+                joined_at_ms,
+                display_name,
+                user_created_at_ms,
+            }
+            .into_member()
+            .map(Some),
+            _ => Err(InvalidStoredData),
+        }
+    }
+}
+
 impl ConversationMemberRow {
     pub(super) fn into_member(self) -> Result<ConversationMember, InvalidStoredData> {
         let user_id = UserId::new(self.user_id).map_err(|_| InvalidStoredData)?;

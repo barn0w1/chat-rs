@@ -5,6 +5,7 @@
 mod app;
 mod auth;
 mod config;
+mod http;
 mod server;
 
 pub mod sqlite;

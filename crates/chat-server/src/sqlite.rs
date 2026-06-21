@@ -121,7 +121,10 @@ pub(crate) struct InvalidStoredData;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chat::{Chat, CreateConversation, CreateConversationError, CreateUser, ListMembersError};
+    use chat::{
+        Chat, CreateConversation, CreateConversationError, CreateUser, ListMembers,
+        ListMembersError,
+    };
 
     #[test]
     fn timestamp_conversion_rejects_negative_values() {
@@ -218,7 +221,8 @@ mod tests {
             .expect("fixture corruption can be introduced");
 
         assert_eq!(
-            chat.list_members(owner, conversation).await,
+            chat.list_members(owner, ListMembers::new(conversation))
+                .await,
             Err(ListMembersError::InvalidStoreResult)
         );
         store.close().await;

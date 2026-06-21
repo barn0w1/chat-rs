@@ -38,10 +38,12 @@ pub use event::ChatEvent;
 pub use get_conversation::{ConversationDetails, GetConversationError};
 pub use id::{ConversationId, InvalidId, MessageId, UserId};
 pub use list_conversations::{
-    ConversationSummary, ListConversationsError, ListConversationsResult,
+    ConversationPage, ConversationSummary, DEFAULT_CONVERSATION_PAGE_SIZE, ListConversations,
+    ListConversationsError, MAX_CONVERSATION_PAGE_SIZE,
 };
 pub use list_members::{
-    ConversationMember, InvalidConversationMember, ListMembersError, ListMembersResult,
+    ConversationMember, DEFAULT_MEMBER_PAGE_SIZE, InvalidConversationMember, ListMembers,
+    ListMembersError, MAX_MEMBER_PAGE_SIZE, MemberPage,
 };
 pub use list_messages::{
     DEFAULT_MESSAGE_PAGE_SIZE, ListMessages, ListMessagesError, MAX_MESSAGE_PAGE_SIZE, MessagePage,
