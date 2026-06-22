@@ -85,9 +85,9 @@ infrastructure without moving application rules into HTTP handlers.
 Status: implemented and locally verified with Rust 1.96. The server reads
 validated environment configuration, initializes structured tracing, opens and
 migrates SQLite before binding, exposes liveness and readiness probes, and
-closes the database pool after Axum graceful shutdown. Check, Clippy, all 40
-tests, release build, formatting, health probes, and graceful SIGINT and SIGTERM
-shutdown pass.
+closes the database pool after Axum graceful shutdown. Check, Clippy, all
+workspace tests, release build, formatting, health probes, and graceful SIGINT
+and SIGTERM shutdown pass.
 
 ### 4. Authentication and protocol
 
@@ -117,6 +117,13 @@ by the server operator.
 Add WebSocket connection management, bounded outbound queues, backpressure,
 heartbeat timeouts, and event fan-out. SQLite remains the durable source of
 truth so clients can recover missed state after reconnecting.
+
+Status: the first implementation increment is planned. It adds an
+authenticated, same-origin `/api/v1/ws` endpoint, mandatory `chat.v1`
+subprotocol negotiation, bounded subscriptions and outbound queues, small
+change notifications, heartbeat and session lifecycle handling, and bounded
+shutdown. HTTP remains the command and durable-query protocol; WebSocket does
+not promise durable replay.
 
 ### 6. Web client and single-binary packaging
 
@@ -171,6 +178,13 @@ Google/Caddy/browser procedure in
 [`docs/e2e-verification.md`](docs/e2e-verification.md) and its
 [`redacted result`](docs/e2e-verification-report-2026-06-22.md) document the
 completed E2E gate.
+
+The next increment is the real-time delivery foundation. Its reviewed scope,
+wire contract, recovery model, resource bounds, lifecycle design, and
+verification plan are recorded in
+[`docs/realtime-delivery-plan.md`](docs/realtime-delivery-plan.md). WebSocket
+notifications are recoverable hints over SQLite-backed HTTP state, not a second
+command protocol or durable event log.
 
 ## Development
 
