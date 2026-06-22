@@ -88,9 +88,15 @@ impl OidcProvider {
         })
     }
 
-    pub(crate) async fn begin_login(&self) -> Result<(Url, OidcLoginTransaction), AuthError> {
+    pub(crate) async fn begin_login(
+        &self,
+        browser_binding: Option<SecretToken>,
+    ) -> Result<(Url, OidcLoginTransaction), AuthError> {
         let state = SecretToken::generate()?;
-        let browser_binding = SecretToken::generate()?;
+        let browser_binding = match browser_binding {
+            Some(browser_binding) => browser_binding,
+            None => SecretToken::generate()?,
+        };
         let nonce = SecretToken::generate()?.encode();
         let verifier_secret = SecretToken::generate()?.encode();
         let verifier = PkceCodeVerifier::new(verifier_secret.clone());

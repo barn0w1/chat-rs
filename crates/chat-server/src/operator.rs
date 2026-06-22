@@ -87,6 +87,7 @@ impl CreateAdmissionCodeError {
             AuthError::InvalidIdentity
             | AuthError::InvalidToken(_)
             | AuthError::InvalidStoredData
+            | AuthError::LoginCapacityReached
             | AuthError::LoginTransactionRejected => Self::InvalidStoredData,
         }
     }

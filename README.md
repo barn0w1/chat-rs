@@ -102,8 +102,7 @@ use cases through authenticated HTTP routes. WebSocket remains a later live
 event channel rather than a second command protocol.
 
 Status: increments 4A, 4B.1, 4B.2, and server admission are implemented. The
-server has a
-method-independent verified identity boundary, standards-based OIDC
+server has a method-independent verified identity boundary, standards-based OIDC
 authorization-code login with PKCE, SQLite-backed opaque sessions, secure
 cookie policy, Origin and CSRF checks, and authenticated read resources for
 conversations, members, and messages. Authenticated clients can create
@@ -151,14 +150,23 @@ domain-error mapping. Its reviewed implementation plan is recorded in
 deduplication, membership workflow, and WebSocket delivery remain separately
 planned work.
 
-The server-admission increment separates verified
-identity from permission to use a particular self-hosted server, adds explicit
+The server-admission increment separates verified identity from permission to
+use a particular self-hosted server, adds explicit
 `open` and `invite_only` policies, and keeps provider-specific authentication
 outside the policy boundary. `invite_only` uses reusable, expiring admission
 codes so an operator can share one code with a group; with no valid code it is
 effectively closed. Its implemented scope, security contracts, persistence
 design, and verification plan are recorded in
 [`docs/server-admission-plan.md`](docs/server-admission-plan.md).
+
+Production-like verification is paused behind a focused source audit and
+hardening increment. The reviewed findings, the path-only logging requirement,
+the decision to retain server-side OpenID Connect Authorization Code Flow, and
+the implementation gate are recorded in
+[`docs/pre-e2e-audit-plan.md`](docs/pre-e2e-audit-plan.md). After that work, the
+Google/Caddy/browser procedure in
+[`docs/e2e-verification.md`](docs/e2e-verification.md) will be updated only for
+the resulting hardening details before it is executed.
 
 ## Development
 

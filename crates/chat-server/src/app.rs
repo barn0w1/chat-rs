@@ -1,8 +1,13 @@
 use std::time::Duration;
 
-use axum::{Router, extract::State, http::StatusCode, routing::get};
+use axum::{
+    Router,
+    extract::{MatchedPath, State},
+    http::{Request, StatusCode},
+    routing::get,
+};
 use chat::Chat;
-use tower_http::trace::{DefaultMakeSpan, DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
 use crate::{
@@ -37,7 +42,10 @@ pub(crate) fn router(store: SqliteStore, config: &Config, oidc: Option<OidcProvi
         admission_mode: config.admission_mode(),
     };
     let trace = TraceLayer::new_for_http()
-        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+        .make_span_with(|request: &Request<_>| {
+            let path = request_path(request);
+            tracing::info_span!("request", method = %request.method(), path = %path)
+        })
         .on_request(DefaultOnRequest::new().level(Level::DEBUG))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
 
@@ -47,6 +55,14 @@ pub(crate) fn router(store: SqliteStore, config: &Config, oidc: Option<OidcProvi
         .merge(http::routes(oidc_enabled))
         .layer(trace)
         .with_state(state)
+}
+
+fn request_path<B>(request: &Request<B>) -> &str {
+    if let Some(path) = request.extensions().get::<MatchedPath>() {
+        path.as_str()
+    } else {
+        request.uri().path()
+    }
 }
 
 async fn liveness() -> StatusCode {
@@ -98,6 +114,38 @@ mod tests {
         })
         .expect("test configuration is valid");
         (router(store.clone(), &config, None), store, directory)
+    }
+
+    #[test]
+    fn trace_fallback_path_excludes_the_query() {
+        let request = Request::builder()
+            .uri("/auth/oidc/callback?code=secret-code&state=secret-state")
+            .body(())
+            .expect("test request is valid");
+
+        assert_eq!(request_path(&request), "/auth/oidc/callback");
+    }
+
+    #[tokio::test]
+    async fn trace_path_prefers_the_matched_route_template() {
+        let app = Router::new().route(
+            "/items/{item_id}",
+            get(|request: axum::extract::Request| async move { request_path(&request).to_owned() }),
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/items/42?token=secret")
+                    .body(Body::empty())
+                    .expect("test request is valid"),
+            )
+            .await
+            .expect("router is infallible");
+        let body = to_bytes(response.into_body(), 1024)
+            .await
+            .expect("response can be read");
+
+        assert_eq!(body.as_ref(), b"/items/{item_id}");
     }
 
     async fn response_status(app: Router, method: Method, uri: &str) -> StatusCode {

@@ -14,16 +14,21 @@ use serde::Deserialize;
 
 use crate::{
     app::AppState,
-    auth::{AdmissionCodeId, AdmissionOutcome, AuthError},
+    auth::{AdmissionCodeId, AdmissionOutcome, AuthError, SecretToken},
 };
 
 use super::{
     authentication::{
-        AuthenticatedSessionRequest, CSRF_HEADER, SameOrigin, cookie_value, valid_origin,
+        AuthenticatedSessionRequest, CSRF_HEADER, SameOrigin, auth_operation_problem, cookie_value,
+        valid_origin,
     },
     problem::Problem,
     representation::{SessionRepresentation, UserRepresentation, json_no_store},
 };
+
+const MAX_AUTHORIZATION_CODE_BYTES: usize = 4 * 1024;
+const MAX_CALLBACK_STATE_BYTES: usize = 64;
+const MAX_PROVIDER_ERROR_BYTES: usize = 1024;
 
 pub(super) fn routes(oidc_enabled: bool) -> Router<AppState> {
     let app = Router::new().route("/api/v1/session", get(get_session).delete(delete_session));
@@ -49,7 +54,10 @@ async fn get_session(authenticated: AuthenticatedSessionRequest) -> Result<Respo
 }
 
 async fn delete_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let token = cookie_value(&headers, &state.cookies, state.cookies.session_name());
+    let token = match cookie_value(&headers, &state.cookies, state.cookies.session_name()) {
+        Ok(token) => token,
+        Err(_) => return Problem::forbidden().into_response(),
+    };
     if let Some(token) = token.as_deref() {
         match state.auth.resolve_session(token, SystemTime::now()).await {
             Ok(Some(session)) => {
@@ -76,8 +84,8 @@ async fn delete_session(State(state): State<AppState>, headers: HeaderMap) -> Re
     )
 }
 
-async fn start_oidc(State(state): State<AppState>) -> Response {
-    begin_oidc(state, None).await
+async fn start_oidc(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    begin_oidc(state, &headers, None).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +97,7 @@ struct AdmissionCodeForm {
 async fn start_oidc_with_code(
     State(state): State<AppState>,
     _same_origin: SameOrigin,
+    headers: HeaderMap,
     form: Result<Form<AdmissionCodeForm>, FormRejection>,
 ) -> Response {
     let form = match form {
@@ -104,14 +113,26 @@ async fn start_oidc_with_code(
         Ok(None) => return Problem::forbidden().into_response(),
         Err(error) => return internal_auth_error(error),
     };
-    begin_oidc(state, Some(code_id)).await
+    begin_oidc(state, &headers, Some(code_id)).await
 }
 
-async fn begin_oidc(state: AppState, admission_code_id: Option<AdmissionCodeId>) -> Response {
+async fn begin_oidc(
+    state: AppState,
+    headers: &HeaderMap,
+    admission_code_id: Option<AdmissionCodeId>,
+) -> Response {
     let Some(provider) = state.oidc.as_ref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let (location, mut login) = match provider.begin_login().await {
+    let browser_binding = match cookie_value(headers, &state.cookies, state.cookies.login_name()) {
+        Ok(Some(value)) => match SecretToken::parse(&value) {
+            Ok(binding) => Some(binding),
+            Err(_) => return login_failure(&state),
+        },
+        Ok(None) => None,
+        Err(_) => return login_failure(&state),
+    };
+    let (location, mut login) = match provider.begin_login(browser_binding).await {
         Ok(values) => values,
         Err(error) => return internal_auth_error(error),
     };
@@ -119,7 +140,10 @@ async fn begin_oidc(state: AppState, admission_code_id: Option<AdmissionCodeId>)
         login = login.with_admission_code(code_id);
     }
     if let Err(error) = state.auth.store_oidc_login(&login, SystemTime::now()).await {
-        return internal_auth_error(error);
+        return match error {
+            AuthError::LoginCapacityReached => Problem::unavailable().into_response(),
+            error => internal_auth_error(error),
+        };
     }
 
     redirect_with_cookies(
@@ -146,9 +170,15 @@ async fn complete_oidc(
     let Ok(Query(callback)) = callback else {
         return login_failure(&state);
     };
+    if !callback.has_valid_shape() {
+        return login_failure(&state);
+    }
     let (Some(callback_state), Some(binding), Some(provider)) = (
         callback.state,
-        cookie_value(&headers, &state.cookies, state.cookies.login_name()),
+        match cookie_value(&headers, &state.cookies, state.cookies.login_name()) {
+            Ok(binding) => binding,
+            Err(_) => return login_failure(&state),
+        },
         state.oidc.as_ref(),
     ) else {
         return login_failure(&state);
@@ -192,7 +222,10 @@ async fn complete_oidc(
         Ok(AdmissionOutcome::Denied) => return login_failure(&state),
         Err(error) => return internal_auth_error(error),
     };
-    let previous = cookie_value(&headers, &state.cookies, state.cookies.session_name());
+    let previous = match cookie_value(&headers, &state.cookies, state.cookies.session_name()) {
+        Ok(previous) => previous,
+        Err(_) => return login_failure(&state),
+    };
     let issued = match state
         .auth
         .issue_session(user.id(), previous.as_deref(), now)
@@ -231,6 +264,9 @@ fn redirect_with_cookies(
         return Problem::internal().into_response();
     };
     response.headers_mut().insert(LOCATION, location);
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     for cookie in cookies.into_iter().flatten() {
         let Ok(value) = HeaderValue::from_str(&cookie.to_string()) else {
             return Problem::internal().into_response();
@@ -250,7 +286,22 @@ fn login_failure(state: &AppState) -> Response {
 
 fn internal_auth_error(error: AuthError) -> Response {
     tracing::error!(error = %error, "authentication operation failed");
-    Problem::unavailable().into_response()
+    auth_operation_problem(&error).into_response()
+}
+
+impl OidcCallback {
+    fn has_valid_shape(&self) -> bool {
+        self.state
+            .as_ref()
+            .is_none_or(|value| !value.is_empty() && value.len() <= MAX_CALLBACK_STATE_BYTES)
+            && self.code.as_ref().is_none_or(|value| {
+                !value.is_empty() && value.len() <= MAX_AUTHORIZATION_CODE_BYTES
+            })
+            && self
+                .error
+                .as_ref()
+                .is_none_or(|value| !value.is_empty() && value.len() <= MAX_PROVIDER_ERROR_BYTES)
+    }
 }
 
 #[cfg(test)]
@@ -364,5 +415,52 @@ mod tests {
             .unwrap();
         assert_eq!(unknown.status(), StatusCode::FORBIDDEN);
         store.close().await;
+    }
+
+    #[test]
+    fn callback_values_are_explicitly_bounded() {
+        assert!(
+            OidcCallback {
+                code: Some(String::from("code")),
+                state: Some(String::from("state")),
+                error: None,
+            }
+            .has_valid_shape()
+        );
+        assert!(
+            !OidcCallback {
+                code: Some("x".repeat(MAX_AUTHORIZATION_CODE_BYTES + 1)),
+                state: Some(String::from("state")),
+                error: None,
+            }
+            .has_valid_shape()
+        );
+        assert!(
+            !OidcCallback {
+                code: None,
+                state: Some(String::new()),
+                error: Some(String::from("access_denied")),
+            }
+            .has_valid_shape()
+        );
+    }
+
+    #[test]
+    fn authentication_redirects_are_not_cacheable() {
+        let response = redirect_with_cookies("/", [None, None]);
+
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    }
+
+    #[test]
+    fn authentication_error_categories_have_stable_statuses() {
+        assert_eq!(
+            internal_auth_error(AuthError::LoginCapacityReached).status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            internal_auth_error(AuthError::InvalidStoredData).status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }
