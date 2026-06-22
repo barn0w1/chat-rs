@@ -107,10 +107,10 @@ authorization-code login with PKCE, SQLite-backed opaque sessions, secure
 cookie policy, Origin and CSRF checks, and authenticated read resources for
 conversations, members, and messages. Authenticated clients can create
 conversations, post messages, and retrieve individual messages through strict,
-bounded JSON routes. Real-provider and browser integration checks remain
-operational verification. New verified identities are admitted according to
-`open` or `invite_only`; the latter accepts reusable, expiring codes created by
-the server operator.
+bounded JSON routes. Production-like Google/Caddy/browser verification passed
+all planned cases on 2026-06-22. New verified identities are admitted according
+to `open` or `invite_only`; the latter accepts reusable, expiring codes created
+by the server operator.
 
 ### 5. Real-time delivery
 
@@ -159,18 +159,18 @@ effectively closed. Its implemented scope, security contracts, persistence
 design, and verification plan are recorded in
 [`docs/server-admission-plan.md`](docs/server-admission-plan.md).
 
-Production-like verification is paused behind a focused source audit and
-hardening increment. The reviewed findings, the path-only logging requirement,
-the decision to retain server-side OpenID Connect Authorization Code Flow, and
-the implementation gate are recorded in
-[`docs/pre-e2e-audit-plan.md`](docs/pre-e2e-audit-plan.md). The source changes
-are implemented; local Rust verification remains before E2E.
+Production-like verification followed a focused source audit and hardening
+increment. The reviewed findings, the path-only logging requirement, the
+decision to retain server-side OpenID Connect Authorization Code Flow, and the
+implementation gate are recorded in
+[`docs/pre-e2e-audit-plan.md`](docs/pre-e2e-audit-plan.md).
 The application now logs method and matched path without queries, makes
 authentication redirects non-cacheable, rejects ambiguous security cookies,
 bounds callback values, and limits pending login transactions. The
 Google/Caddy/browser procedure in
-[`docs/e2e-verification.md`](docs/e2e-verification.md) includes the remaining
-Caddy logging decision and Google issuer configuration.
+[`docs/e2e-verification.md`](docs/e2e-verification.md) and its
+[`redacted result`](docs/e2e-verification-report-2026-06-22.md) document the
+completed E2E gate.
 
 ## Development
 

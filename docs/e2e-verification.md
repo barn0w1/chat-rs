@@ -1,7 +1,10 @@
-# Production-Like E2E Verification Plan
+# Production-Like E2E Verification
 
-Status: planned; local Rust verification and an explicit Caddy logging decision remain
+Status: completed; all cases passed
 Date: 2026-06-22
+
+The completed, redacted evidence summary is recorded in
+[`e2e-verification-report-2026-06-22.md`](e2e-verification-report-2026-06-22.md).
 
 ## Purpose
 
@@ -187,38 +190,61 @@ server ready
 Do not include the client secret or raw configuration environment in captured
 evidence.
 
-## Browser Test Utilities
+## Browser Test Utility
 
 The web client does not exist yet. A successful callback redirects to `/`,
 which currently returns `404`. That is expected and does not mean login failed.
 Verify the session through `/api/v1/session`.
 
-To submit an admission code without placing it in a URL or JavaScript source:
+Do not construct the admission form from a browser developer-console
+evaluation. Firefox can assign such a navigation an opaque initiator; the
+resulting request carries `Origin: null` and `Sec-Fetch-Site: cross-site`, which
+the server correctly rejects. A real document served from the public chat
+origin is required.
 
-1. Open `https://chat.hss-science.org/`.
-2. Open the browser developer console.
-3. Run the following snippet.
-4. Enter the code only in the prompt.
+During E2E only, add a minimal same-origin form to the existing Caddy site. The
+following shows the relevant `handle` structure; retain any unrelated logging
+or TLS configuration already present:
 
-```js
-const form = document.createElement("form");
-form.method = "post";
-form.action = "/auth/oidc/start";
-const input = document.createElement("input");
-input.type = "hidden";
-input.name = "admission_code";
-input.value = prompt("Admission code") ?? "";
-form.append(input);
-document.body.append(form);
-form.submit();
+```caddyfile
+chat.hss-science.org {
+    handle /_e2e/admission {
+        header {
+            Content-Type text/html
+            Cache-Control no-store
+            X-Content-Type-Options nosniff
+        }
+        respond <<HTML
+            <!doctype html>
+            <html lang="en">
+            <head><meta charset="utf-8"><title>Chat E2E admission</title></head>
+            <body>
+              <form method="post" action="/auth/oidc/start">
+                <label>Admission code
+                  <input type="password" name="admission_code"
+                         minlength="43" maxlength="43" autocomplete="off" required>
+                </label>
+                <button type="submit">Continue</button>
+              </form>
+            </body>
+            </html>
+            HTML 200
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}
 ```
 
-This creates a top-level same-origin form POST, allowing the exact Origin check
-and the subsequent cross-origin Google redirect to behave like the future web
-client.
+Validate and reload Caddy, then open
+`https://chat.hss-science.org/_e2e/admission` and enter the code. Confirm in
+browser network tools that the POST has
+`Origin: https://chat.hss-science.org`, `Sec-Fetch-Site: same-origin`, and a
+58-byte form body. Remove the temporary route after E5.
 
-Clear the developer console after using the code. Never paste it into a URL,
-command-line argument, screenshot, issue, or test report.
+Never paste an admission code into a URL, JavaScript source, command-line
+argument, screenshot, issue, or test report.
 
 ## Verification Cases
 
