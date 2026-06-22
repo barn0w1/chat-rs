@@ -295,6 +295,12 @@ a startup failure. Never include the client secret in `Debug`, `Display`, or
 tracing output; configuration types containing it need a redacted/manual Debug
 implementation.
 
+`CHAT_OIDC_ISSUER` is an exact OIDC Issuer Identifier, not an origin to
+canonicalize. Validate it as a secure URL, but preserve its configured string
+for discovery and token validation. In particular, Google's published issuer
+is `https://accounts.google.com` without a trailing slash; adding one changes
+the identifier and must fail discovery's exact-match check.
+
 The listen address and public URL are deliberately separate. This supports a
 loopback server behind an HTTPS reverse proxy without trusting forwarded
 headers.

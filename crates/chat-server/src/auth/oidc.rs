@@ -194,7 +194,7 @@ async fn discover_client(
     redirect_url: &RedirectUrl,
     http: &reqwest::Client,
 ) -> Result<ConfiguredClient, OidcError> {
-    let issuer = IssuerUrl::new(config.issuer().to_string())
+    let issuer = IssuerUrl::new(config.issuer().to_owned())
         .map_err(|error| OidcError::Configuration(error.to_string()))?;
     let metadata = CoreProviderMetadata::discover_async(issuer, http)
         .await

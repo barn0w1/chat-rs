@@ -1,6 +1,6 @@
 # Production-Like E2E Verification Plan
 
-Status: planned; local Rust verification and Caddy log redaction are blocking prerequisites
+Status: planned; local Rust verification and an explicit Caddy logging decision remain
 Date: 2026-06-22
 
 ## Purpose
@@ -24,7 +24,7 @@ The goal is not broad exploratory testing. It is to demonstrate that the
 implemented trust, origin, identity, admission, session, and persistence
 contracts work in the intended deployment topology.
 
-## Blocking Security Check
+## Logging Decision Before Real Login
 
 Do not begin the OIDC cases until request logging has been reviewed.
 
@@ -32,15 +32,17 @@ The application trace layer now records only method and Axum's matched route
 template, falling back to `request.uri().path()` for unmatched requests. It
 does not record the query or request headers. An OIDC callback still carries
 `code` and `state` in its query, so Caddy access logging must be checked
-independently.
+independently. The application cannot impose a reverse-proxy logging policy;
+that decision belongs to the server operator.
 
 Before E2E:
 
 1. Run the local formatting, check, Clippy, and test gate against the hardened
    code.
 2. Inspect the effective Caddy configuration.
-3. If Caddy HTTP access logging is enabled, either skip
-   `/auth/oidc/callback` or filter the `code` and `state` query values.
+3. If Caddy HTTP access logging is enabled, choose whether to skip
+   `/auth/oidc/callback`, filter the `code` and `state` query values, or retain
+   them under an explicitly accepted access-control and retention policy.
 4. Confirm that Cookie, Set-Cookie, Authorization, request bodies, admission
    codes, and OIDC query secrets are not collected by any external log shipper.
 
@@ -67,8 +69,9 @@ entry. If the deployment already wraps another log encoder, integrate the
 query filter into that encoder rather than creating a second conflicting
 `format` declaration.
 
-This is an E2E gate, not an optional hardening task. The callback must not be
-sent through known secret-logging paths merely to test whether login works.
+The required E2E gate is an explicit, documented logging decision. Redaction is
+the recommended defense-in-depth default, but it is not an application
+protocol requirement and cannot be enforced by `chat-server`.
 
 ## Deployment Under Test
 
@@ -132,9 +135,18 @@ Required authorized redirect URI:
 https://chat.hss-science.org/auth/oidc/callback
 ```
 
-It must match exactly. The backend flow does not require a Google JavaScript
-origin because the server redirects directly to Google's authorization
-endpoint and exchanges the code itself.
+Configure the issuer exactly as Google publishes it, without a trailing slash:
+
+```sh
+CHAT_OIDC_ISSUER=https://accounts.google.com
+```
+
+Issuer identifiers are exact strings under OIDC Discovery. They are not URL
+origins to normalize.
+
+The redirect URI must match exactly. The backend flow does not require a Google
+JavaScript origin because the server redirects directly to Google's
+authorization endpoint and exchanges the code itself.
 
 Use only the scopes requested by the implementation (`openid` and `profile`).
 No Google API access, refresh token, or offline access is needed.
@@ -167,7 +179,7 @@ Expected startup evidence:
 ```text
 configuration accepted ... admission_mode=InviteOnly
 SQLite opened and migrated
-OIDC provider discovered issuer=https://accounts.google.com/
+OIDC provider discovered issuer=https://accounts.google.com
 listener bound
 server ready
 ```
@@ -449,7 +461,7 @@ Allowed evidence includes:
 - configured issuer; and
 - non-secret lifecycle messages.
 
-The following must not appear:
+The following must never appear in application logs:
 
 - Google authorization `code`;
 - OIDC `state` or nonce;
@@ -459,6 +471,14 @@ The following must not appear:
 - raw session or CSRF token;
 - Cookie or Set-Cookie values; or
 - ID-token claims beyond deliberately logged non-secret configuration.
+
+Apply the same list to Caddy when the operator selected redaction or omission.
+If callback query retention was deliberately selected, verify that its access,
+shipping, backup, and retention behavior matches the accepted policy. An
+authorization code is short-lived, single-use, and protected here by exact
+redirect URI, confidential-client authentication, server-held PKCE, state, and
+browser binding. Logging it still broadens exposure, enables correlation and
+race attempts, and increases the impact of a combined log/server compromise.
 
 Search by field names, but do not paste known secret values into shell history
 for `grep`. If any secret was logged, stop testing, restrict the log files,
@@ -489,7 +509,9 @@ Evidence must redact all bearer values and personal account identifiers.
 
 The E2E gate passes when:
 
-- request-query secrets are absent from application and Caddy logs;
+- request-query secrets are absent from application logs;
+- Caddy callback-query handling matches the operator's documented logging
+  decision;
 - Google discovery, redirect, callback, and ID-token verification succeed;
 - Secure host-only cookies work through Caddy TLS termination;
 - authentication without admission creates no unknown user in `invite_only`;

@@ -153,9 +153,11 @@ claims in the generic request span. A route template is preferred over the
 concrete path because it also avoids user-data leakage and unbounded metric
 cardinality.
 
-The application cannot enforce Caddy logging. The deployment must configure
-Caddy to omit or redact query strings before E2E, and the E2E log review must
-check both layers.
+The application cannot enforce Caddy logging. The server operator owns that
+policy. Before E2E, inspect the effective Caddy configuration and make an
+explicit decision: omit or redact callback query values (recommended), disable
+callback access logging, or accept tightly controlled retention. The E2E log
+review must check both layers against the selected policy.
 
 ### P1: Authentication responses need an explicit cache policy
 
@@ -382,8 +384,9 @@ request/response API.
 ## Acceptance Criteria
 
 - Generic application request logs cannot contain a query or header value.
-- Caddy is configured and manually verified not to retain callback query
-  credentials or sensitive response headers.
+- The Caddy logging policy is explicitly reviewed. Callback query credentials
+  are omitted/redacted, or their bounded residual risk, access control, and
+  retention are deliberately accepted by the operator.
 - No authentication or session response is cacheable.
 - The only supported browser login is the server-side Authorization Code Flow.
 - State, browser binding, nonce, PKCE, exact redirect URI, code exchange, and

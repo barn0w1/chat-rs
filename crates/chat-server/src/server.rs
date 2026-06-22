@@ -141,7 +141,7 @@ pub struct OidcStartupError(OidcError);
 
 impl fmt::Display for OidcStartupError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
+        formatter.write_str("provider setup failed")
     }
 }
 
@@ -181,7 +181,7 @@ impl std::error::Error for RunError {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsString, future};
+    use std::{error::Error, ffi::OsString, future};
 
     use tempfile::TempDir;
 
@@ -194,6 +194,17 @@ mod tests {
             ..crate::config::ConfigValues::default()
         })
         .expect("test configuration is valid")
+    }
+
+    #[test]
+    fn oidc_startup_error_keeps_context_separate_from_its_source() {
+        let error = OidcStartupError(OidcError::Discovery(String::from("issuer mismatch")));
+
+        assert_eq!(error.to_string(), "provider setup failed");
+        assert_eq!(
+            error.source().expect("source is retained").to_string(),
+            "OIDC provider discovery failed: issuer mismatch"
+        );
     }
 
     #[tokio::test]

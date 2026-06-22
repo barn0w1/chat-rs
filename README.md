@@ -163,10 +163,14 @@ Production-like verification is paused behind a focused source audit and
 hardening increment. The reviewed findings, the path-only logging requirement,
 the decision to retain server-side OpenID Connect Authorization Code Flow, and
 the implementation gate are recorded in
-[`docs/pre-e2e-audit-plan.md`](docs/pre-e2e-audit-plan.md). After that work, the
+[`docs/pre-e2e-audit-plan.md`](docs/pre-e2e-audit-plan.md). The source changes
+are implemented; local Rust verification remains before E2E.
+The application now logs method and matched path without queries, makes
+authentication redirects non-cacheable, rejects ambiguous security cookies,
+bounds callback values, and limits pending login transactions. The
 Google/Caddy/browser procedure in
-[`docs/e2e-verification.md`](docs/e2e-verification.md) will be updated only for
-the resulting hardening details before it is executed.
+[`docs/e2e-verification.md`](docs/e2e-verification.md) includes the remaining
+Caddy logging decision and Google issuer configuration.
 
 ## Development
 
@@ -191,6 +195,8 @@ Configuration is provided through `CHAT_LISTEN_ADDR`, `CHAT_DATABASE_PATH`,
 OIDC login is enabled by setting
 `CHAT_OIDC_ISSUER` and `CHAT_OIDC_CLIENT_ID` together; a provider that requires
 confidential-client authentication also uses `CHAT_OIDC_CLIENT_SECRET`.
+The issuer is an exact OIDC identifier and is preserved as configured; do not
+add or remove a trailing slash from the value published by the provider.
 For example:
 
 ```sh
