@@ -125,7 +125,7 @@ impl fmt::Debug for Config {
 /// Validated OpenID Connect client configuration.
 #[derive(Clone, Eq, PartialEq)]
 pub struct OidcConfig {
-    issuer: Url,
+    issuer: String,
     client_id: String,
     client_secret: Option<String>,
 }
@@ -141,8 +141,8 @@ pub enum AdmissionMode {
 }
 
 impl OidcConfig {
-    /// Returns the configured issuer URL.
-    pub const fn issuer(&self) -> &Url {
+    /// Returns the exact configured issuer identifier.
+    pub fn issuer(&self) -> &str {
         &self.issuer
     }
 
@@ -267,7 +267,7 @@ impl fmt::Display for ConfigError {
             }
             Self::UnsupportedOidcIssuer => write!(
                 formatter,
-                "{OIDC_ISSUER_ENV} must use HTTPS or loopback HTTP"
+                "{OIDC_ISSUER_ENV} must be an absolute HTTPS URL (or loopback HTTP) without user information, query, or fragment"
             ),
             Self::AdmissionModeNotUnicode(value) => write!(
                 formatter,
@@ -358,16 +358,18 @@ fn parse_oidc(
         });
     }
 
-    let issuer = Url::parse(&issuer).map_err(|source| ConfigError::InvalidOidcIssuer {
-        value: issuer,
+    // Discovery compares issuer identifiers exactly. Validate the URL without
+    // replacing the operator-provided serialization with `Url`'s serialization.
+    let issuer_url = Url::parse(&issuer).map_err(|source| ConfigError::InvalidOidcIssuer {
+        value: issuer.clone(),
         source,
     })?;
-    if issuer.username() != ""
-        || issuer.password().is_some()
-        || issuer.host().is_none()
-        || issuer.query().is_some()
-        || issuer.fragment().is_some()
-        || !is_https_or_loopback_http(&issuer)
+    if issuer_url.username() != ""
+        || issuer_url.password().is_some()
+        || issuer_url.host().is_none()
+        || issuer_url.query().is_some()
+        || issuer_url.fragment().is_some()
+        || !is_https_or_loopback_http(&issuer_url)
     {
         return Err(ConfigError::UnsupportedOidcIssuer);
     }
@@ -462,14 +464,29 @@ mod tests {
         assert_eq!(config.database_path(), Path::new("data/chat.db"));
         assert_eq!(config.public_url().as_str(), "https://chat.example.com/");
         let oidc = config.oidc().expect("OIDC is configured");
-        assert_eq!(
-            oidc.issuer().as_str(),
-            "https://accounts.example.com/tenant"
-        );
+        assert_eq!(oidc.issuer(), "https://accounts.example.com/tenant");
         assert_eq!(oidc.client_id(), "chat-client");
         assert_eq!(oidc.client_secret(), Some("secret-value"));
         assert_eq!(config.admission_mode(), AdmissionMode::Open);
         assert!(!format!("{config:?}").contains("secret-value"));
+    }
+
+    #[test]
+    fn oidc_issuer_preserves_the_exact_validated_identifier() {
+        for issuer in [
+            "https://accounts.google.com",
+            "https://accounts.google.com/",
+            "https://accounts.example.com/tenant",
+        ] {
+            let config = Config::from_values(ConfigValues {
+                oidc_issuer: Some(OsString::from(issuer)),
+                oidc_client_id: Some(OsString::from("client")),
+                ..ConfigValues::default()
+            })
+            .expect("issuer is valid");
+
+            assert_eq!(config.oidc().expect("OIDC is configured").issuer(), issuer);
+        }
     }
 
     #[test]

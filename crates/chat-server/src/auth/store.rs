@@ -407,7 +407,7 @@ impl SessionUserRow {
     }
 }
 
-#[derive(Debug, FromRow)]
+#[derive(FromRow)]
 struct LoginRow {
     browser_binding_hash: Vec<u8>,
     nonce: String,

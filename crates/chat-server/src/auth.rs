@@ -110,13 +110,26 @@ impl IssuedSession {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct OidcLoginTransaction {
     state: SecretToken,
     browser_binding: SecretToken,
     nonce: String,
     pkce_verifier: String,
     admission_code_id: Option<AdmissionCodeId>,
+}
+
+impl fmt::Debug for OidcLoginTransaction {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OidcLoginTransaction")
+            .field("state", &"[REDACTED]")
+            .field("browser_binding", &"[REDACTED]")
+            .field("nonce", &"[REDACTED]")
+            .field("pkce_verifier", &"[REDACTED]")
+            .field("admission_code_id", &self.admission_code_id)
+            .finish()
+    }
 }
 
 impl OidcLoginTransaction {
@@ -161,11 +174,22 @@ impl OidcLoginTransaction {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct ConsumedOidcLogin {
     nonce: String,
     pkce_verifier: String,
     admission_code_id: Option<AdmissionCodeId>,
+}
+
+impl fmt::Debug for ConsumedOidcLogin {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ConsumedOidcLogin")
+            .field("nonce", &"[REDACTED]")
+            .field("pkce_verifier", &"[REDACTED]")
+            .field("admission_code_id", &self.admission_code_id)
+            .finish()
+    }
 }
 
 impl ConsumedOidcLogin {
@@ -286,5 +310,19 @@ mod tests {
             VerifiedIdentity::new("issuer", "x".repeat(MAX_SUBJECT_BYTES + 1), None),
             Err(AuthError::InvalidIdentity)
         ));
+    }
+
+    #[test]
+    fn oidc_transaction_debug_output_redacts_protocol_secrets() {
+        let transaction = OidcLoginTransaction::new(
+            SecretToken::generate().expect("state can be generated"),
+            SecretToken::generate().expect("binding can be generated"),
+            String::from("private-nonce"),
+            String::from("private-pkce-verifier"),
+        );
+        let debug = format!("{transaction:?}");
+
+        assert!(!debug.contains("private-nonce"));
+        assert!(!debug.contains("private-pkce-verifier"));
     }
 }
