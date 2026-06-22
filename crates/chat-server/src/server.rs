@@ -1,10 +1,17 @@
-use std::{fmt, future::Future, io, net::SocketAddr};
+use std::{
+    fmt,
+    future::{Future, IntoFuture},
+    io,
+    net::SocketAddr,
+};
 
 use tokio::net::TcpListener;
+use tokio::{sync::oneshot, time};
 
 use crate::{
     Config, app,
     auth::{OidcError, OidcProvider},
+    realtime::{RealtimeHub, RealtimeSettings},
     sqlite::{OpenError, SqliteStore},
 };
 
@@ -68,18 +75,63 @@ where
     };
     tracing::info!(%listen_addr, "listener bound");
 
-    let app = app::router(store.clone(), &config, oidc);
+    let realtime = RealtimeHub::new(RealtimeSettings::default());
+    let realtime_settings = realtime.settings();
+    let app = app::router(store.clone(), &config, oidc, realtime.clone());
     tracing::info!(%listen_addr, "server ready");
 
-    let serve_result = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await;
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut shutdown_tx = Some(shutdown_tx);
+    let serve = axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        })
+        .into_future();
+    tokio::pin!(serve);
+    tokio::pin!(shutdown);
+
+    let serve_result = tokio::select! {
+        result = &mut serve => {
+            realtime.shutdown();
+            if let Some(sender) = shutdown_tx.take() {
+                let _ = sender.send(());
+            }
+            match time::timeout(
+                realtime_settings.server_drain_timeout,
+                realtime.wait_for_drain(),
+            )
+            .await
+            {
+                Ok(()) => result.map_err(RunError::Serve),
+                Err(_) => Err(RunError::ShutdownTimeout),
+            }
+        }
+        () = &mut shutdown => {
+            realtime.shutdown();
+            if let Some(sender) = shutdown_tx.take() {
+                let _ = sender.send(());
+            }
+            match time::timeout(
+                realtime_settings.server_drain_timeout,
+                async {
+                    let result = (&mut serve).await;
+                    realtime.wait_for_drain().await;
+                    result
+                },
+            )
+            .await
+            {
+                Ok(result) => result.map_err(RunError::Serve),
+                Err(_) => Err(RunError::ShutdownTimeout),
+            }
+        }
+    };
     tracing::info!("HTTP serving stopped");
 
     store.close().await;
     tracing::info!("SQLite pool closed");
 
-    serve_result.map_err(RunError::Serve)
+    serve_result
 }
 
 async fn shutdown_signal() {
@@ -133,6 +185,8 @@ pub enum RunError {
     ListenerAddress(io::Error),
     /// Axum serving ended with an unexpected I/O error.
     Serve(io::Error),
+    /// HTTP or WebSocket connections did not drain within the shutdown deadline.
+    ShutdownTimeout,
 }
 
 /// OpenID Connect provider discovery or client setup failure.
@@ -163,6 +217,7 @@ impl fmt::Display for RunError {
                 formatter.write_str("failed to inspect the bound HTTP listener")
             }
             Self::Serve(_) => formatter.write_str("HTTP server failed"),
+            Self::ShutdownTimeout => formatter.write_str("server shutdown timed out"),
         }
     }
 }
@@ -175,6 +230,7 @@ impl std::error::Error for RunError {
             Self::Bind { source, .. } | Self::ListenerAddress(source) | Self::Serve(source) => {
                 Some(source)
             }
+            Self::ShutdownTimeout => None,
         }
     }
 }

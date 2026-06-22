@@ -14,6 +14,7 @@ use crate::{
     AdmissionMode, Config,
     auth::{AuthStore, CookiePolicy, OidcProvider},
     http,
+    realtime::RealtimeHub,
     sqlite::SqliteStore,
 };
 
@@ -28,9 +29,15 @@ pub(crate) struct AppState {
     pub(crate) expected_origin: String,
     pub(crate) oidc: Option<OidcProvider>,
     pub(crate) admission_mode: AdmissionMode,
+    pub(crate) realtime: RealtimeHub,
 }
 
-pub(crate) fn router(store: SqliteStore, config: &Config, oidc: Option<OidcProvider>) -> Router {
+pub(crate) fn router(
+    store: SqliteStore,
+    config: &Config,
+    oidc: Option<OidcProvider>,
+    realtime: RealtimeHub,
+) -> Router {
     let oidc_enabled = oidc.is_some();
     let state = AppState {
         chat: Chat::new(store.clone()),
@@ -40,6 +47,7 @@ pub(crate) fn router(store: SqliteStore, config: &Config, oidc: Option<OidcProvi
         expected_origin: config.public_url().origin().ascii_serialization(),
         oidc,
         admission_mode: config.admission_mode(),
+        realtime,
     };
     let trace = TraceLayer::new_for_http()
         .make_span_with(|request: &Request<_>| {
@@ -113,7 +121,16 @@ mod tests {
             ..ConfigValues::default()
         })
         .expect("test configuration is valid");
-        (router(store.clone(), &config, None), store, directory)
+        (
+            router(
+                store.clone(),
+                &config,
+                None,
+                RealtimeHub::new(Default::default()),
+            ),
+            store,
+            directory,
+        )
     }
 
     #[test]

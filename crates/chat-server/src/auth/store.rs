@@ -10,8 +10,8 @@ use crate::{
 
 use super::{
     AdmissionCodeId, AdmissionOutcome, AuthError, AuthenticatedSession, ConsumedOidcLogin,
-    IssuedAdmissionCode, IssuedSession, OidcLoginTransaction, SecretToken, VerifiedIdentity,
-    unix_time_millis,
+    IssuedAdmissionCode, IssuedSession, OidcLoginTransaction, SecretToken, SessionFingerprint,
+    VerifiedIdentity, unix_time_millis,
 };
 
 const SESSION_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -233,8 +233,10 @@ impl AuthStore {
             Err(_) => return Ok(None),
         };
         let now_ms = unix_time_millis(now)?;
+        let fingerprint = SessionFingerprint::new(token.hash());
         let row = sqlx::query_as::<_, SessionUserRow>(
-            "SELECT u.id, u.display_name, u.created_at_ms, s.csrf_token \
+            "SELECT u.id, u.display_name, u.created_at_ms, s.csrf_token, \
+                    s.expires_at_ms \
              FROM auth_sessions AS s \
              JOIN users AS u ON u.id = s.user_id \
              WHERE s.token_hash = ? AND s.expires_at_ms > ?",
@@ -244,7 +246,24 @@ impl AuthStore {
         .fetch_optional(&self.sqlite.pool)
         .await?;
 
-        row.map(SessionUserRow::into_session).transpose()
+        row.map(|row| row.into_session(fingerprint)).transpose()
+    }
+
+    pub(crate) async fn session_is_active(
+        &self,
+        fingerprint: SessionFingerprint,
+        now: SystemTime,
+    ) -> Result<bool, AuthError> {
+        let now_ms = unix_time_millis(now)?;
+        let active = sqlx::query_scalar::<_, i64>(
+            "SELECT EXISTS(SELECT 1 FROM auth_sessions \
+             WHERE token_hash = ? AND expires_at_ms > ?)",
+        )
+        .bind(fingerprint.bytes().as_slice())
+        .bind(now_ms)
+        .fetch_one(&self.sqlite.pool)
+        .await?;
+        Ok(active == 1)
     }
 
     pub(crate) async fn revoke_session(&self, token: &str) -> Result<(), AuthError> {
@@ -392,10 +411,14 @@ struct SessionUserRow {
     display_name: String,
     created_at_ms: i64,
     csrf_token: Vec<u8>,
+    expires_at_ms: i64,
 }
 
 impl SessionUserRow {
-    fn into_session(self) -> Result<AuthenticatedSession, AuthError> {
+    fn into_session(
+        self,
+        fingerprint: SessionFingerprint,
+    ) -> Result<AuthenticatedSession, AuthError> {
         let csrf_token = SecretToken::from_stored(self.csrf_token)?;
         let user = UserRow {
             id: self.id,
@@ -403,7 +426,14 @@ impl SessionUserRow {
             created_at_ms: self.created_at_ms,
         }
         .into_user()?;
-        Ok(AuthenticatedSession::new(user, csrf_token))
+        let expires_at = system_time_from_millis(self.expires_at_ms)
+            .map_err(|_| AuthError::InvalidStoredData)?;
+        Ok(AuthenticatedSession::new(
+            user,
+            csrf_token,
+            fingerprint,
+            expires_at,
+        ))
     }
 }
 
@@ -513,6 +543,13 @@ mod tests {
             .expect("session is valid");
         let csrf = resolved.csrf_token();
         assert_eq!(resolved.user_id(), user);
+        assert_eq!(resolved.expires_at(), now + SESSION_LIFETIME);
+        assert!(
+            store
+                .session_is_active(resolved.fingerprint(), now)
+                .await
+                .unwrap()
+        );
         assert!(resolved.verifies_csrf(&csrf));
         assert!(!resolved.verifies_csrf(&SecretToken::generate().unwrap().encode()));
 
@@ -530,6 +567,12 @@ mod tests {
             .await
             .expect("session can be revoked");
         assert!(store.resolve_session(&token, now).await.unwrap().is_none());
+        assert!(
+            !store
+                .session_is_active(resolved.fingerprint(), now)
+                .await
+                .unwrap()
+        );
         sqlite.close().await;
     }
 

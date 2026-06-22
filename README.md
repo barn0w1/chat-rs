@@ -118,12 +118,12 @@ Add WebSocket connection management, bounded outbound queues, backpressure,
 heartbeat timeouts, and event fan-out. SQLite remains the durable source of
 truth so clients can recover missed state after reconnecting.
 
-Status: the first implementation increment is planned. It adds an
-authenticated, same-origin `/api/v1/ws` endpoint, mandatory `chat.v1`
-subprotocol negotiation, bounded subscriptions and outbound queues, small
-change notifications, heartbeat and session lifecycle handling, and bounded
-shutdown. HTTP remains the command and durable-query protocol; WebSocket does
-not promise durable replay.
+Status: the first implementation increment is implemented and awaits local
+Rust verification. It adds an authenticated, same-origin `/api/v1/ws`
+endpoint, mandatory `chat.v1` subprotocol negotiation, bounded subscriptions
+and outbound queues, small change notifications, heartbeat and session
+lifecycle handling, and bounded shutdown. HTTP remains the command and
+durable-query protocol; WebSocket does not promise durable replay.
 
 ### 6. Web client and single-binary packaging
 
@@ -154,8 +154,7 @@ the shared HTTP boundary and authenticated, paginated read routes. Increment
 strict request DTOs, body limits, Origin and CSRF enforcement, and finite
 domain-error mapping. Its reviewed implementation plan is recorded in
 [`docs/http-chat-mutations-plan.md`](docs/http-chat-mutations-plan.md). Retry
-deduplication, membership workflow, and WebSocket delivery remain separately
-planned work.
+deduplication and the membership workflow remain separately planned work.
 
 The server-admission increment separates verified identity from permission to
 use a particular self-hosted server, adds explicit
@@ -179,12 +178,13 @@ Google/Caddy/browser procedure in
 [`redacted result`](docs/e2e-verification-report-2026-06-22.md) document the
 completed E2E gate.
 
-The next increment is the real-time delivery foundation. Its reviewed scope,
-wire contract, recovery model, resource bounds, lifecycle design, and
-verification plan are recorded in
+The real-time delivery foundation is implemented. Its reviewed scope, wire
+contract, recovery model, resource bounds, lifecycle design, and verification
+plan are recorded in
 [`docs/realtime-delivery-plan.md`](docs/realtime-delivery-plan.md). WebSocket
 notifications are recoverable hints over SQLite-backed HTTP state, not a second
-command protocol or durable event log.
+command protocol or durable event log. Local formatting, check, Clippy, and
+test results remain the completion gate for this increment.
 
 ## Development
 
