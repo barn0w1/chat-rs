@@ -385,7 +385,8 @@ core domain types. Convert between the two at the handler boundary.
   the domain payload and JSON's encoded worst case; the 4B plan currently uses
   64 KiB for chat commands.
 - Return `413` for oversized input and `415` for a wrong content type.
-- Add `Cache-Control: no-store` to session and authenticated API responses.
+- Add `Cache-Control: no-store` to authentication redirects, session responses,
+  problems, and authenticated API responses.
 
 ### Errors
 
@@ -547,6 +548,7 @@ root; `main.rs` is limited to process configuration, telemetry, and exit status.
 - independent browser sessions for one user
 - CSRF validation and rotation
 - exact cookie attributes for HTTPS and loopback development
+- malformed or duplicate security-cookie rejection
 
 ### OIDC
 
@@ -559,6 +561,8 @@ Use an in-process local provider fixture; never call a public provider in tests.
 - metadata redirects are refused
 - bounded metadata refresh on signing-key rotation
 - provider errors do not disclose response bodies or secrets
+- one live transaction per browser binding and a bounded global live set
+- explicit callback state, authorization-code, and provider-error size limits
 
 ### HTTP protocol
 
@@ -568,7 +572,7 @@ Use Tower `oneshot` for handler contracts.
 - problem status, content type, and stable type URN
 - malformed JSON, unknown fields, media type, and body limit
 - authenticated actor comes only from request extensions/session
-- `Cache-Control: no-store`
+- `Cache-Control: no-store`, including authentication redirects
 - unsafe methods require CSRF and exact Origin
 - health routes remain unauthenticated
 

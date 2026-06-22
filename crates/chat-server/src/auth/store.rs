@@ -16,6 +16,7 @@ use super::{
 
 const SESSION_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LOGIN_LIFETIME: Duration = Duration::from_secs(10 * 60);
+const MAX_LIVE_LOGIN_TRANSACTIONS: i64 = 1024;
 const TOKEN_INSERT_ATTEMPTS: usize = 2;
 
 #[derive(Clone, Debug)]
@@ -270,6 +271,20 @@ impl AuthStore {
             .bind(created_at_ms)
             .execute(&mut *transaction)
             .await?;
+        sqlx::query("DELETE FROM oidc_login_transactions WHERE browser_binding_hash = ?")
+            .bind(login.browser_binding().hash().as_slice())
+            .execute(&mut *transaction)
+            .await?;
+        let live_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM oidc_login_transactions WHERE expires_at_ms > ?",
+        )
+        .bind(created_at_ms)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if !has_login_capacity(live_count) {
+            transaction.rollback().await?;
+            return Err(AuthError::LoginCapacityReached);
+        }
         sqlx::query(
             "INSERT INTO oidc_login_transactions \
              (state_hash, browser_binding_hash, nonce, pkce_verifier, \
@@ -347,6 +362,10 @@ fn expiry_millis(now: SystemTime, lifetime: Duration) -> Result<i64, AuthError> 
 
 fn fixed_hash(value: Vec<u8>) -> Result<[u8; 32], AuthError> {
     value.try_into().map_err(|_| AuthError::InvalidStoredData)
+}
+
+const fn has_login_capacity(live_count: i64) -> bool {
+    live_count < MAX_LIVE_LOGIN_TRANSACTIONS
 }
 
 #[derive(Debug, FromRow)]
@@ -582,6 +601,55 @@ mod tests {
                 .is_err()
         );
         sqlite.close().await;
+    }
+
+    #[tokio::test]
+    async fn newer_oidc_transaction_replaces_one_for_the_same_browser() {
+        let (store, sqlite, _directory) = test_store().await;
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(40);
+        let binding = SecretToken::generate().expect("binding can be generated");
+        let first = OidcLoginTransaction::new(
+            SecretToken::generate().expect("state can be generated"),
+            binding.clone(),
+            String::from("first-nonce"),
+            "a".repeat(43),
+        );
+        let second = OidcLoginTransaction::new(
+            SecretToken::generate().expect("state can be generated"),
+            binding,
+            String::from("second-nonce"),
+            "b".repeat(43),
+        );
+
+        store.store_oidc_login(&first, now).await.unwrap();
+        store.store_oidc_login(&second, now).await.unwrap();
+
+        assert!(matches!(
+            store
+                .consume_oidc_login(
+                    &first.state().encode(),
+                    &first.browser_binding().encode(),
+                    now,
+                )
+                .await,
+            Err(AuthError::LoginTransactionRejected)
+        ));
+        let consumed = store
+            .consume_oidc_login(
+                &second.state().encode(),
+                &second.browser_binding().encode(),
+                now,
+            )
+            .await
+            .expect("newest transaction remains valid");
+        assert_eq!(consumed.nonce(), "second-nonce");
+        sqlite.close().await;
+    }
+
+    #[test]
+    fn login_capacity_has_an_explicit_boundary() {
+        assert!(has_login_capacity(MAX_LIVE_LOGIN_TRANSACTIONS - 1));
+        assert!(!has_login_capacity(MAX_LIVE_LOGIN_TRANSACTIONS));
     }
 
     #[tokio::test]

@@ -52,11 +52,18 @@ impl CookiePolicy {
         self.removal(self.login_name())
     }
 
-    pub(crate) fn find(&self, header: &str, name: &str) -> Option<String> {
-        Cookie::split_parse(header)
-            .filter_map(Result::ok)
-            .find(|cookie| cookie.name() == name)
-            .map(|cookie| cookie.value().to_owned())
+    pub(crate) fn find(&self, header: &str, name: &str) -> Result<Option<String>, CookieError> {
+        let mut found = None;
+        for cookie in Cookie::split_parse(header) {
+            let cookie = cookie.map_err(|_| CookieError)?;
+            if cookie.name() == name {
+                if found.is_some() {
+                    return Err(CookieError);
+                }
+                found = Some(cookie.value().to_owned());
+            }
+        }
+        Ok(found)
     }
 
     fn build(&self, name: &'static str, value: String, max_age: Duration) -> Cookie<'static> {
@@ -75,6 +82,9 @@ impl CookiePolicy {
         cookie
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CookieError;
 
 #[cfg(test)]
 mod tests {
@@ -103,7 +113,25 @@ mod tests {
         assert_eq!(cookie.secure(), Some(false));
         assert_eq!(
             policy.find("a=b; chat_session=token", cookie.name()),
-            Some(String::from("token"))
+            Ok(Some(String::from("token")))
+        );
+    }
+
+    #[test]
+    fn duplicate_or_malformed_security_cookies_are_rejected() {
+        let url = Url::parse("https://chat.example.com").expect("URL is valid");
+        let policy = CookiePolicy::new(&url);
+
+        assert_eq!(
+            policy.find(
+                "__Host-chat_session=first; __Host-chat_session=second",
+                SESSION_COOKIE_HTTPS,
+            ),
+            Err(CookieError)
+        );
+        assert_eq!(
+            policy.find("=value", SESSION_COOKIE_HTTPS),
+            Err(CookieError)
         );
     }
 }

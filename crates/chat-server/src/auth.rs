@@ -9,7 +9,7 @@ use std::{fmt, time::SystemTime};
 use chat::{DisplayName, User, UserId};
 
 pub(crate) use admission::{AdmissionCodeId, AdmissionOutcome, IssuedAdmissionCode};
-pub(crate) use cookie::CookiePolicy;
+pub(crate) use cookie::{CookieError, CookiePolicy};
 pub(crate) use oidc::{OidcError, OidcProvider};
 pub(crate) use session::{SecretToken, TokenError};
 pub(crate) use store::AuthStore;
@@ -200,6 +200,7 @@ pub(crate) enum AuthError {
     InvalidIdentity,
     InvalidToken(TokenError),
     InvalidStoredData,
+    LoginCapacityReached,
     LoginTransactionRejected,
     StoreUnavailable(sqlx::Error),
     TimeUnavailable,
@@ -212,6 +213,9 @@ impl fmt::Display for AuthError {
             Self::InvalidIdentity => formatter.write_str("verified identity is invalid"),
             Self::InvalidToken(_) => formatter.write_str("authentication token is invalid"),
             Self::InvalidStoredData => formatter.write_str("authentication data is invalid"),
+            Self::LoginCapacityReached => {
+                formatter.write_str("too many authentication attempts are pending")
+            }
             Self::LoginTransactionRejected => {
                 formatter.write_str("login transaction is missing, expired, or mismatched")
             }

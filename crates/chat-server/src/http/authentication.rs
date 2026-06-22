@@ -12,7 +12,7 @@ use chat::UserId;
 
 use crate::{
     app::AppState,
-    auth::{AuthenticatedSession, CookiePolicy},
+    auth::{AuthError, AuthenticatedSession, CookieError, CookiePolicy},
 };
 
 use super::problem::Problem;
@@ -122,14 +122,28 @@ async fn authenticate(
     state: &AppState,
 ) -> Result<AuthenticatedSession, Problem> {
     let token = cookie_value(headers, &state.cookies, state.cookies.session_name())
+        .map_err(|_| Problem::unauthenticated())?
         .ok_or(Problem::unauthenticated())?;
     match state.auth.resolve_session(&token, SystemTime::now()).await {
         Ok(Some(session)) => Ok(session),
         Ok(None) => Err(Problem::unauthenticated()),
         Err(error) => {
             tracing::error!(error = %error, "session authentication failed");
-            Err(Problem::unavailable())
+            Err(auth_operation_problem(&error))
         }
+    }
+}
+
+pub(super) fn auth_operation_problem(error: &AuthError) -> Problem {
+    match error {
+        AuthError::Entropy(_)
+        | AuthError::LoginCapacityReached
+        | AuthError::StoreUnavailable(_) => Problem::unavailable(),
+        AuthError::InvalidIdentity
+        | AuthError::InvalidStoredData
+        | AuthError::InvalidToken(_)
+        | AuthError::LoginTransactionRejected
+        | AuthError::TimeUnavailable => Problem::internal(),
     }
 }
 
@@ -137,12 +151,18 @@ pub(crate) fn cookie_value(
     headers: &HeaderMap,
     policy: &CookiePolicy,
     name: &str,
-) -> Option<String> {
-    headers
-        .get_all(COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .find_map(|value| policy.find(value, name))
+) -> Result<Option<String>, CookieError> {
+    let mut found = None;
+    for header in headers.get_all(COOKIE).iter() {
+        let header = header.to_str().map_err(|_| CookieError)?;
+        if let Some(value) = policy.find(header, name)? {
+            if found.is_some() {
+                return Err(CookieError);
+            }
+            found = Some(value);
+        }
+    }
+    Ok(found)
 }
 
 pub(super) fn valid_origin(headers: &HeaderMap, expected: &str) -> bool {
@@ -155,4 +175,31 @@ fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a HeaderVal
     let mut values = headers.get_all(name).iter();
     let value = values.next()?;
     values.next().is_none().then_some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use url::Url;
+
+    use super::*;
+
+    #[test]
+    fn cookie_extraction_rejects_duplicates_across_header_fields() {
+        let policy =
+            CookiePolicy::new(&Url::parse("https://chat.example.com").expect("test URL is valid"));
+        let mut headers = HeaderMap::new();
+        headers.append(
+            axum::http::header::COOKIE,
+            HeaderValue::from_static("__Host-chat_session=first"),
+        );
+        headers.append(
+            axum::http::header::COOKIE,
+            HeaderValue::from_static("__Host-chat_session=second"),
+        );
+
+        assert_eq!(
+            cookie_value(&headers, &policy, policy.session_name()),
+            Err(CookieError)
+        );
+    }
 }
