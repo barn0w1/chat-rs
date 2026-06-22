@@ -441,9 +441,10 @@ Milestone 5 will use `/api/v1/ws` and negotiate the `chat.v1` WebSocket
 subprotocol. The upgrade authenticates the existing session cookie and validates
 Origin before switching protocols.
 
-WebSocket is initially a server-to-client live event channel. Commands and
-queries remain HTTP. This avoids inventing separate request correlation,
-idempotency, validation, and error semantics for WebSocket messages.
+WebSocket is initially a server-to-client live event channel with only bounded
+client-to-server subscription control. Chat commands and durable queries remain
+HTTP. This avoids inventing separate request correlation, idempotency,
+validation, and error semantics for chat operations over WebSocket.
 
 Live events are not the durable source of truth. The first implementation has
 no persisted global event sequence, so it must not promise lossless replay or a
@@ -452,7 +453,8 @@ message history over HTTP; SQLite entity/message IDs provide the durable state.
 
 Session expiry and revocation for already-upgraded connections, bounded outbound
 queues, heartbeat timeout, slow-consumer policy, and graceful connection drain
-are Milestone 5 concerns.
+are Milestone 5 concerns. Their concrete protocol and implementation plan is
+recorded in [`realtime-delivery-plan.md`](realtime-delivery-plan.md).
 
 ## Rust Dependencies
 
