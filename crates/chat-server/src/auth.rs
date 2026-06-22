@@ -71,11 +71,23 @@ impl VerifiedIdentity {
 pub(crate) struct AuthenticatedSession {
     user: User,
     csrf_token: SecretToken,
+    fingerprint: SessionFingerprint,
+    expires_at: SystemTime,
 }
 
 impl AuthenticatedSession {
-    pub(crate) const fn new(user: User, csrf_token: SecretToken) -> Self {
-        Self { user, csrf_token }
+    pub(crate) const fn new(
+        user: User,
+        csrf_token: SecretToken,
+        fingerprint: SessionFingerprint,
+        expires_at: SystemTime,
+    ) -> Self {
+        Self {
+            user,
+            csrf_token,
+            fingerprint,
+            expires_at,
+        }
     }
 
     pub(crate) const fn user(&self) -> &User {
@@ -86,12 +98,45 @@ impl AuthenticatedSession {
         self.user.id()
     }
 
+    pub(crate) const fn fingerprint(&self) -> SessionFingerprint {
+        self.fingerprint
+    }
+
+    pub(crate) const fn expires_at(&self) -> SystemTime {
+        self.expires_at
+    }
+
     pub(crate) fn verifies_csrf(&self, value: &str) -> bool {
         SecretToken::parse(value).is_ok_and(|token| token.matches(&self.csrf_token))
     }
 
     pub(crate) fn csrf_token(&self) -> String {
         self.csrf_token.encode()
+    }
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub(crate) struct SessionFingerprint([u8; 32]);
+
+impl SessionFingerprint {
+    pub(crate) const fn new(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+
+    pub(crate) fn from_token(value: &str) -> Option<Self> {
+        SecretToken::parse(value)
+            .ok()
+            .map(|token| Self(token.hash()))
+    }
+
+    pub(crate) const fn bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SessionFingerprint {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SessionFingerprint([REDACTED])")
     }
 }
 

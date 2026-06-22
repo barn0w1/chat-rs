@@ -80,6 +80,31 @@ pub(crate) struct AuthenticatedSessionRequest {
     session: AuthenticatedSession,
 }
 
+pub(crate) struct AuthenticatedWebSocket {
+    session: AuthenticatedSession,
+}
+
+impl AuthenticatedWebSocket {
+    pub(crate) fn into_session(self) -> AuthenticatedSession {
+        self.session
+    }
+}
+
+impl FromRequestParts<AppState> for AuthenticatedWebSocket {
+    type Rejection = Problem;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let session = authenticate(&parts.headers, state).await?;
+        if !valid_origin(&parts.headers, &state.expected_origin) {
+            return Err(Problem::forbidden());
+        }
+        Ok(Self { session })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SameOrigin;
 

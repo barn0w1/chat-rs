@@ -68,6 +68,7 @@ async fn create_conversation(
         .create_conversation(actor.user_id(), CreateConversation::new(payload.title))
         .await
         .map_err(map_create_conversation_error)?;
+    state.realtime.publish_events(result.events());
     representation::created_conversation(&result)
 }
 
@@ -203,6 +204,7 @@ async fn post_message(
         )
         .await
         .map_err(map_post_message_error)?;
+    state.realtime.publish_events(result.events());
     representation::created_message(&result)
 }
 

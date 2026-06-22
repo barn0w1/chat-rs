@@ -15,6 +15,7 @@ use serde::Deserialize;
 use crate::{
     app::AppState,
     auth::{AdmissionCodeId, AdmissionOutcome, AuthError, SecretToken},
+    realtime::CloseDirective,
 };
 
 use super::{
@@ -72,6 +73,9 @@ async fn delete_session(State(state): State<AppState>, headers: HeaderMap) -> Re
                 if let Err(error) = state.auth.revoke_session(token).await {
                     return internal_auth_error(error);
                 }
+                state
+                    .realtime
+                    .close_session(session.fingerprint(), CloseDirective::session_revoked());
             }
             Ok(None) => {}
             Err(error) => return internal_auth_error(error),
@@ -226,6 +230,9 @@ async fn complete_oidc(
         Ok(previous) => previous,
         Err(_) => return login_failure(&state),
     };
+    let previous_fingerprint = previous
+        .as_deref()
+        .and_then(crate::auth::SessionFingerprint::from_token);
     let issued = match state
         .auth
         .issue_session(user.id(), previous.as_deref(), now)
@@ -234,6 +241,11 @@ async fn complete_oidc(
         Ok(session) => session,
         Err(error) => return internal_auth_error(error),
     };
+    if let Some(fingerprint) = previous_fingerprint {
+        state
+            .realtime
+            .close_session(fingerprint, CloseDirective::session_revoked());
+    }
 
     redirect_with_cookies(
         "/",
@@ -336,6 +348,7 @@ mod tests {
             expected_origin: config.public_url().origin().ascii_serialization(),
             oidc: None,
             admission_mode: config.admission_mode(),
+            realtime: crate::realtime::RealtimeHub::new(Default::default()),
         };
         (routes(true).with_state(state), store, directory)
     }

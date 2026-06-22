@@ -18,6 +18,7 @@ axum = { version = "0.8.9", default-features = false, features = [
     "query",
     "tokio",
     "tracing",
+    "ws",
 ] }
 base64 = "0.22.1"
 chat = { path = "crates/chat" }

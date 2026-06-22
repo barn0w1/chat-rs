@@ -1,8 +1,13 @@
 # Real-Time Delivery Foundation Plan
 
-Status: planned; implementation has not started
-Date: 2026-06-22
+Status: implemented; local Rust verification pending
+Date: 2026-06-23
 Baseline: `3d4374c`
+
+Implementation result: the authenticated upgrade, strict protocol, bounded
+hub, subscription authorization, committed event publication, heartbeat,
+session revocation/expiry, bounded shutdown, and real-socket tests described
+below are implemented without changing the `chat` crate or SQLite schema.
 
 ## Decision Summary
 

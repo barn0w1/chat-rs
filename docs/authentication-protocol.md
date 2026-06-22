@@ -431,17 +431,18 @@ The researched scope, endpoint contracts, pagination changes, implementation
 slices, and deferred decisions for 4B are maintained in
 [`http-chat-api-plan.md`](http-chat-api-plan.md).
 
-The next code increment is 4B.1: authenticated read routes. Mutation routes,
-operation deduplication, and membership invitations are separate increments so
-their transaction and product semantics can be reviewed independently.
+Increments 4B.1 and 4B.2 implement authenticated reads, conversation creation,
+message posting, and individual message retrieval. Operation deduplication and
+membership invitations remain separate increments so their transaction and
+product semantics can be reviewed independently.
 
-## Future WebSocket Contract
+## WebSocket Contract
 
-Milestone 5 will use `/api/v1/ws` and negotiate the `chat.v1` WebSocket
+Milestone 5A uses `/api/v1/ws` and negotiates the `chat.v1` WebSocket
 subprotocol. The upgrade authenticates the existing session cookie and validates
 Origin before switching protocols.
 
-WebSocket is initially a server-to-client live event channel with only bounded
+WebSocket is a server-to-client live event channel with only bounded
 client-to-server subscription control. Chat commands and durable queries remain
 HTTP. This avoids inventing separate request correlation, idempotency,
 validation, and error semantics for chat operations over WebSocket.
@@ -453,8 +454,8 @@ message history over HTTP; SQLite entity/message IDs provide the durable state.
 
 Session expiry and revocation for already-upgraded connections, bounded outbound
 queues, heartbeat timeout, slow-consumer policy, and graceful connection drain
-are Milestone 5 concerns. Their concrete protocol and implementation plan is
-recorded in [`realtime-delivery-plan.md`](realtime-delivery-plan.md).
+are implemented by Milestone 5A. Their concrete protocol and implementation
+plan is recorded in [`realtime-delivery-plan.md`](realtime-delivery-plan.md).
 
 ## Rust Dependencies
 
