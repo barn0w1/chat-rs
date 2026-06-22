@@ -1,8 +1,8 @@
 use std::time::SystemTime;
 
 use axum::{
-    Router,
-    extract::{Query, State},
+    Form, Router,
+    extract::{DefaultBodyLimit, Query, State, rejection::FormRejection},
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{CACHE_CONTROL, LOCATION, SET_COOKIE},
@@ -12,10 +12,15 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{app::AppState, auth::AuthError};
+use crate::{
+    app::AppState,
+    auth::{AdmissionCodeId, AdmissionOutcome, AuthError},
+};
 
 use super::{
-    authentication::{AuthenticatedSessionRequest, CSRF_HEADER, cookie_value, valid_origin},
+    authentication::{
+        AuthenticatedSessionRequest, CSRF_HEADER, SameOrigin, cookie_value, valid_origin,
+    },
     problem::Problem,
     representation::{SessionRepresentation, UserRepresentation, json_no_store},
 };
@@ -23,8 +28,13 @@ use super::{
 pub(super) fn routes(oidc_enabled: bool) -> Router<AppState> {
     let app = Router::new().route("/api/v1/session", get(get_session).delete(delete_session));
     if oidc_enabled {
-        app.route("/auth/oidc/start", get(start_oidc))
-            .route("/auth/oidc/callback", get(complete_oidc))
+        app.route(
+            "/auth/oidc/start",
+            get(start_oidc)
+                .post(start_oidc_with_code)
+                .layer(DefaultBodyLimit::max(256)),
+        )
+        .route("/auth/oidc/callback", get(complete_oidc))
     } else {
         app
     }
@@ -67,13 +77,47 @@ async fn delete_session(State(state): State<AppState>, headers: HeaderMap) -> Re
 }
 
 async fn start_oidc(State(state): State<AppState>) -> Response {
+    begin_oidc(state, None).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdmissionCodeForm {
+    admission_code: String,
+}
+
+async fn start_oidc_with_code(
+    State(state): State<AppState>,
+    _same_origin: SameOrigin,
+    form: Result<Form<AdmissionCodeForm>, FormRejection>,
+) -> Response {
+    let form = match form {
+        Ok(Form(form)) => form,
+        Err(rejection) => return Problem::from_form_rejection(rejection).into_response(),
+    };
+    let code_id = match state
+        .auth
+        .resolve_admission_code(&form.admission_code, SystemTime::now())
+        .await
+    {
+        Ok(Some(code_id)) => code_id,
+        Ok(None) => return Problem::forbidden().into_response(),
+        Err(error) => return internal_auth_error(error),
+    };
+    begin_oidc(state, Some(code_id)).await
+}
+
+async fn begin_oidc(state: AppState, admission_code_id: Option<AdmissionCodeId>) -> Response {
     let Some(provider) = state.oidc.as_ref() else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let (location, login) = match provider.begin_login().await {
+    let (location, mut login) = match provider.begin_login().await {
         Ok(values) => values,
         Err(error) => return internal_auth_error(error),
     };
+    if let Some(code_id) = admission_code_id {
+        login = login.with_admission_code(code_id);
+    }
     if let Err(error) = state.auth.store_oidc_login(&login, SystemTime::now()).await {
         return internal_auth_error(error);
     }
@@ -134,8 +178,18 @@ async fn complete_oidc(
         }
     };
     let now = SystemTime::now();
-    let user = match state.auth.resolve_or_provision(&identity, now).await {
-        Ok(user) => user,
+    let user = match state
+        .auth
+        .resolve_or_admit(
+            &identity,
+            login.admission_code_id(),
+            state.admission_mode,
+            now,
+        )
+        .await
+    {
+        Ok(AdmissionOutcome::Admitted(user)) => user,
+        Ok(AdmissionOutcome::Denied) => return login_failure(&state),
         Err(error) => return internal_auth_error(error),
     };
     let previous = cookie_value(&headers, &state.cookies, state.cookies.session_name());
@@ -197,4 +251,118 @@ fn login_failure(state: &AppState) -> Response {
 fn internal_auth_error(error: AuthError) -> Response {
     tracing::error!(error = %error, "authentication operation failed");
     Problem::unavailable().into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::Body,
+        http::{Method, Request, header::CONTENT_TYPE},
+    };
+    use chat::Chat;
+    use tower::ServiceExt;
+
+    use crate::{
+        Config,
+        auth::{AuthStore, CookiePolicy},
+        config::ConfigValues,
+        sqlite::SqliteStore,
+    };
+
+    use super::*;
+
+    async fn test_app() -> (Router, SqliteStore, tempfile::TempDir) {
+        let directory = tempfile::tempdir().expect("temporary directory can be created");
+        let store = SqliteStore::open(directory.path().join("chat.sqlite3"))
+            .await
+            .expect("test database can be opened");
+        let config = Config::from_values(ConfigValues::default()).unwrap();
+        let state = AppState {
+            chat: Chat::new(store.clone()),
+            auth: AuthStore::new(store.clone()),
+            store: store.clone(),
+            cookies: CookiePolicy::new(config.public_url()),
+            expected_origin: config.public_url().origin().ascii_serialization(),
+            oidc: None,
+            admission_mode: config.admission_mode(),
+        };
+        (routes(true).with_state(state), store, directory)
+    }
+
+    fn code_request(origin: Option<&str>, content_type: Option<&str>, body: &str) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method(Method::POST)
+            .uri("/auth/oidc/start");
+        if let Some(origin) = origin {
+            builder = builder.header("origin", origin);
+        }
+        if let Some(content_type) = content_type {
+            builder = builder.header(CONTENT_TYPE, content_type);
+        }
+        builder
+            .body(Body::from(body.to_owned()))
+            .expect("test request is valid")
+    }
+
+    #[tokio::test]
+    async fn admission_code_start_checks_origin_before_form_content() {
+        let (app, store, _directory) = test_app().await;
+        let response = app
+            .oneshot(code_request(
+                Some("https://attacker.example"),
+                Some("application/x-www-form-urlencoded"),
+                "{",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        store.close().await;
+    }
+
+    #[tokio::test]
+    async fn admission_code_start_rejects_media_form_size_and_unknown_code() {
+        let (app, store, _directory) = test_app().await;
+        let origin = Some("http://127.0.0.1:3000");
+
+        let unsupported = app
+            .clone()
+            .oneshot(code_request(origin, None, "admission_code=value"))
+            .await
+            .unwrap();
+        assert_eq!(unsupported.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+        let malformed = app
+            .clone()
+            .oneshot(code_request(
+                origin,
+                Some("application/x-www-form-urlencoded"),
+                "unknown=value",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+
+        let oversized_body = format!("admission_code={}", "x".repeat(300));
+        let oversized = app
+            .clone()
+            .oneshot(code_request(
+                origin,
+                Some("application/x-www-form-urlencoded"),
+                &oversized_body,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        let unknown = app
+            .oneshot(code_request(
+                origin,
+                Some("application/x-www-form-urlencoded"),
+                "admission_code=not-a-valid-code",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(unknown.status(), StatusCode::FORBIDDEN);
+        store.close().await;
+    }
 }

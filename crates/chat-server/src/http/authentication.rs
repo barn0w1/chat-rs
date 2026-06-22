@@ -80,6 +80,24 @@ pub(crate) struct AuthenticatedSessionRequest {
     session: AuthenticatedSession,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SameOrigin;
+
+impl FromRequestParts<AppState> for SameOrigin {
+    type Rejection = Problem;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        if valid_origin(&parts.headers, &state.expected_origin) {
+            Ok(Self)
+        } else {
+            Err(Problem::forbidden())
+        }
+    }
+}
+
 impl AuthenticatedSessionRequest {
     pub(crate) fn into_session(self) -> AuthenticatedSession {
         self.session

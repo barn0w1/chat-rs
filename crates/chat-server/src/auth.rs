@@ -1,3 +1,4 @@
+mod admission;
 mod cookie;
 mod oidc;
 mod session;
@@ -7,6 +8,7 @@ use std::{fmt, time::SystemTime};
 
 use chat::{DisplayName, User, UserId};
 
+pub(crate) use admission::{AdmissionCodeId, AdmissionOutcome, IssuedAdmissionCode};
 pub(crate) use cookie::CookiePolicy;
 pub(crate) use oidc::{OidcError, OidcProvider};
 pub(crate) use session::{SecretToken, TokenError};
@@ -114,6 +116,7 @@ pub(crate) struct OidcLoginTransaction {
     browser_binding: SecretToken,
     nonce: String,
     pkce_verifier: String,
+    admission_code_id: Option<AdmissionCodeId>,
 }
 
 impl OidcLoginTransaction {
@@ -128,7 +131,13 @@ impl OidcLoginTransaction {
             browser_binding,
             nonce,
             pkce_verifier,
+            admission_code_id: None,
         }
+    }
+
+    pub(crate) fn with_admission_code(mut self, admission_code_id: AdmissionCodeId) -> Self {
+        self.admission_code_id = Some(admission_code_id);
+        self
     }
 
     pub(crate) const fn state(&self) -> &SecretToken {
@@ -146,19 +155,29 @@ impl OidcLoginTransaction {
     pub(crate) fn pkce_verifier(&self) -> &str {
         &self.pkce_verifier
     }
+
+    pub(crate) const fn admission_code_id(&self) -> Option<AdmissionCodeId> {
+        self.admission_code_id
+    }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConsumedOidcLogin {
     nonce: String,
     pkce_verifier: String,
+    admission_code_id: Option<AdmissionCodeId>,
 }
 
 impl ConsumedOidcLogin {
-    pub(crate) const fn new(nonce: String, pkce_verifier: String) -> Self {
+    pub(crate) const fn new(
+        nonce: String,
+        pkce_verifier: String,
+        admission_code_id: Option<AdmissionCodeId>,
+    ) -> Self {
         Self {
             nonce,
             pkce_verifier,
+            admission_code_id,
         }
     }
 
@@ -168,6 +187,10 @@ impl ConsumedOidcLogin {
 
     pub(crate) fn pkce_verifier(&self) -> &str {
         &self.pkce_verifier
+    }
+
+    pub(crate) const fn admission_code_id(&self) -> Option<AdmissionCodeId> {
+        self.admission_code_id
     }
 }
 

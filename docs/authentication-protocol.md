@@ -140,7 +140,7 @@ allowlist if the web client requires it.
 3. Exchange the authorization code using its stored PKCE verifier.
 4. Validate the ID token and nonce through `openidconnect`.
 5. Produce `VerifiedIdentity { authority, subject, profile_hint }`.
-6. Resolve or provision the local `User` in one SQLite transaction.
+6. Resolve the local `User`, or apply server admission before provisioning it.
 7. Revoke any session token presented by this browser and issue a new session.
 8. Set the session cookie, clear the login cookie, and redirect to `/`.
 
@@ -153,14 +153,25 @@ tokens, state, nonce, PKCE verifier, client secret, or cookies.
 
 ## Account Resolution and Provisioning
 
+> **Current behavior:** Milestone 4A originally provisioned every newly
+> verified identity. The server-admission increment now applies the policy in
+> [`server-admission-plan.md`](server-admission-plan.md). The verified-identity
+> boundary remains unchanged.
+
 Identity verification and account provisioning are different operations.
 The OIDC adapter verifies identity; a server-owned identity service decides
 which `UserId` that identity represents.
 
-For the first implementation:
+The current implementation guarantees:
 
 - An existing `(authority, subject)` binding returns its current user.
-- A new binding atomically creates a user and the binding.
+- A new binding is created only when `open` mode or an unexpired admission code
+  permits it.
+- Admission code evaluation occurs after identity verification and affects
+  only new bindings.
+- A shared admission code can admit multiple independently verified identities
+  until its expiry.
+- User creation and identity binding remain one SQLite transaction.
 - Concurrent first logins for the same identity must create exactly one user.
 - A valid provider `name` claim is passed through `chat::DisplayName` validation.
 - Missing or invalid profile names use the neutral value `New user`.
@@ -173,7 +184,7 @@ path do not duplicate SQL behavior. Do not add OIDC concepts to `chat` merely to
 make the transaction look uniform.
 
 Account linking, unlinking, merging, provider migration, and an onboarding name
-screen are non-goals for 4A. They require explicit user-presence and recovery
+screen remain non-goals. They require explicit user-presence and recovery
 policies and must not emerge as side effects of login.
 
 ## Server-Side Sessions

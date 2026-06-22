@@ -20,6 +20,7 @@ where
     tracing::info!(
         listen_addr = %config.listen_addr(),
         database_path = %config.database_path().display(),
+        admission_mode = ?config.admission_mode(),
         "configuration accepted"
     );
 

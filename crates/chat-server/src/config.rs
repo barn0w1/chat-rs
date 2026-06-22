@@ -26,6 +26,9 @@ pub const OIDC_CLIENT_ID_ENV: &str = "CHAT_OIDC_CLIENT_ID";
 /// Environment variable used to configure the optional OpenID Connect client secret.
 pub const OIDC_CLIENT_SECRET_ENV: &str = "CHAT_OIDC_CLIENT_SECRET";
 
+/// Environment variable used to configure new-user admission.
+pub const ADMISSION_MODE_ENV: &str = "CHAT_ADMISSION_MODE";
+
 const DEFAULT_DATABASE_PATH: &str = "chat.sqlite3";
 const DEFAULT_PUBLIC_URL: &str = "http://127.0.0.1:3000";
 
@@ -36,6 +39,7 @@ pub struct Config {
     database_path: PathBuf,
     public_url: Url,
     oidc: Option<OidcConfig>,
+    admission_mode: AdmissionMode,
 }
 
 impl Config {
@@ -48,6 +52,7 @@ impl Config {
             oidc_issuer: env::var_os(OIDC_ISSUER_ENV),
             oidc_client_id: env::var_os(OIDC_CLIENT_ID_ENV),
             oidc_client_secret: env::var_os(OIDC_CLIENT_SECRET_ENV),
+            admission_mode: env::var_os(ADMISSION_MODE_ENV),
         })
     }
 
@@ -71,6 +76,11 @@ impl Config {
         self.oidc.as_ref()
     }
 
+    /// Returns the policy applied when a verified identity has no local binding.
+    pub const fn admission_mode(&self) -> AdmissionMode {
+        self.admission_mode
+    }
+
     pub(crate) fn from_values(values: ConfigValues) -> Result<Self, ConfigError> {
         let listen_addr = parse_listen_addr(values.listen_addr)?;
 
@@ -87,12 +97,14 @@ impl Config {
             values.oidc_client_id,
             values.oidc_client_secret,
         )?;
+        let admission_mode = parse_admission_mode(values.admission_mode)?;
 
         Ok(Self {
             listen_addr,
             database_path: PathBuf::from(database_path),
             public_url,
             oidc,
+            admission_mode,
         })
     }
 }
@@ -105,6 +117,7 @@ impl fmt::Debug for Config {
             .field("database_path", &self.database_path)
             .field("public_url", &self.public_url)
             .field("oidc", &self.oidc)
+            .field("admission_mode", &self.admission_mode)
             .finish()
     }
 }
@@ -115,6 +128,16 @@ pub struct OidcConfig {
     issuer: Url,
     client_id: String,
     client_secret: Option<String>,
+}
+
+/// Policy for admitting a verified identity that has no local user binding.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AdmissionMode {
+    /// Create a local user after successful identity verification.
+    Open,
+    /// Require an unexpired, operator-created admission code.
+    #[default]
+    InviteOnly,
 }
 
 impl OidcConfig {
@@ -156,6 +179,7 @@ pub(crate) struct ConfigValues {
     pub(crate) oidc_issuer: Option<OsString>,
     pub(crate) oidc_client_id: Option<OsString>,
     pub(crate) oidc_client_secret: Option<OsString>,
+    pub(crate) admission_mode: Option<OsString>,
 }
 
 /// Describes why server configuration is invalid.
@@ -204,6 +228,10 @@ pub enum ConfigError {
     },
     /// The OpenID Connect issuer URL is not HTTPS or loopback HTTP.
     UnsupportedOidcIssuer,
+    /// The admission mode cannot be represented as Unicode.
+    AdmissionModeNotUnicode(OsString),
+    /// The admission mode is not one of the supported values.
+    InvalidAdmissionMode(String),
 }
 
 impl fmt::Display for ConfigError {
@@ -240,6 +268,14 @@ impl fmt::Display for ConfigError {
             Self::UnsupportedOidcIssuer => write!(
                 formatter,
                 "{OIDC_ISSUER_ENV} must use HTTPS or loopback HTTP"
+            ),
+            Self::AdmissionModeNotUnicode(value) => write!(
+                formatter,
+                "{ADMISSION_MODE_ENV} must be valid Unicode, got {value:?}"
+            ),
+            Self::InvalidAdmissionMode(value) => write!(
+                formatter,
+                "{ADMISSION_MODE_ENV} must be open or invite_only, got {value:?}"
             ),
         }
     }
@@ -343,6 +379,20 @@ fn parse_oidc(
     }))
 }
 
+fn parse_admission_mode(value: Option<OsString>) -> Result<AdmissionMode, ConfigError> {
+    let Some(value) = value else {
+        return Ok(AdmissionMode::default());
+    };
+    let value = value
+        .into_string()
+        .map_err(ConfigError::AdmissionModeNotUnicode)?;
+    match value.as_str() {
+        "open" => Ok(AdmissionMode::Open),
+        "invite_only" => Ok(AdmissionMode::InviteOnly),
+        _ => Err(ConfigError::InvalidAdmissionMode(value)),
+    }
+}
+
 fn unicode_setting(
     value: Option<OsString>,
     variable: &'static str,
@@ -392,6 +442,7 @@ mod tests {
         assert_eq!(config.database_path(), Path::new("chat.sqlite3"));
         assert_eq!(config.public_url().as_str(), "http://127.0.0.1:3000/");
         assert!(config.oidc().is_none());
+        assert_eq!(config.admission_mode(), AdmissionMode::InviteOnly);
     }
 
     #[test]
@@ -403,6 +454,7 @@ mod tests {
             oidc_issuer: Some(OsString::from("https://accounts.example.com/tenant")),
             oidc_client_id: Some(OsString::from("chat-client")),
             oidc_client_secret: Some(OsString::from("secret-value")),
+            admission_mode: Some(OsString::from("open")),
         })
         .expect("overrides are valid");
 
@@ -416,6 +468,7 @@ mod tests {
         );
         assert_eq!(oidc.client_id(), "chat-client");
         assert_eq!(oidc.client_secret(), Some("secret-value"));
+        assert_eq!(config.admission_mode(), AdmissionMode::Open);
         assert!(!format!("{config:?}").contains("secret-value"));
     }
 
@@ -498,6 +551,13 @@ mod tests {
         })
         .expect_err("URLs must be Unicode");
         assert!(matches!(error, ConfigError::UrlNotUnicode { .. }));
+
+        let error = Config::from_values(ConfigValues {
+            admission_mode: Some(OsString::from_vec(vec![0xff])),
+            ..ConfigValues::default()
+        })
+        .expect_err("admission mode must be Unicode");
+        assert!(matches!(error, ConfigError::AdmissionModeNotUnicode(_)));
     }
 
     #[test]
@@ -510,5 +570,17 @@ mod tests {
         .expect("path is valid");
 
         assert_eq!(config.database_path().as_os_str(), path);
+    }
+
+    #[test]
+    fn admission_mode_is_strict() {
+        for value in ["", "closed", "OPEN", "invite-only"] {
+            let error = Config::from_values(ConfigValues {
+                admission_mode: Some(OsString::from(value)),
+                ..ConfigValues::default()
+            })
+            .expect_err("unsupported admission mode must be rejected");
+            assert!(matches!(error, ConfigError::InvalidAdmissionMode(_)));
+        }
     }
 }
