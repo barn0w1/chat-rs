@@ -178,9 +178,10 @@ The repository toolchain is selected by `rust-toolchain.toml`.
 
 ```sh
 cargo fmt --all -- --check
+cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo doc --workspace --no-deps
+cargo doc -p chat --no-deps
 ```
 
 Run the server with loopback and file-database defaults:
