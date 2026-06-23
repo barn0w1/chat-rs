@@ -1,8 +1,11 @@
 # Real-Time E2E Verification
 
-Status: planned
+Status: completed; application-level cases passed
 Date: 2026-06-23
 Baseline: `58ba53e`
+
+The completed evidence summary is recorded in
+[`realtime-e2e-verification-report-2026-06-23.md`](realtime-e2e-verification-report-2026-06-23.md).
 
 ## Purpose
 
@@ -386,22 +389,25 @@ Expected:
 - close reason is expected to be `session ended`; and
 - a later `Refresh session` returns `401`.
 
-### R11: Session Replacement Closes Previous Session
+### R11: Same-User Multi-Session Behavior
 
 Steps:
 
 1. In A1, login and connect.
-2. In a second A browser profile or after deleting only the session cookie,
-   login again as the same Google account.
-3. Observe A1's old socket.
+2. In a second A browser profile, login again as the same Google account.
+3. Refresh session and connect in A2.
+4. Observe A1's old socket.
 
 Expected:
 
-- the old socket closes with session-ended semantics;
-- the new session can connect; and
-- the user ID remains the same.
+- both profiles resolve to the same user ID;
+- both profiles can hold independent sessions and WebSockets; and
+- A1's socket is not closed merely because A2 logged in.
 
-This case verifies the implementation's previous-session revocation path.
+The server supports multiple active sessions for the same user so one account
+can be used from multiple browsers or devices. A previous session is revoked
+only when the login request carries that previous session cookie and replaces
+it in the same browser context.
 
 ### R12: Protocol Violations
 
@@ -497,7 +503,7 @@ Public origin:
 | R8 | unsubscribe stops notifications | | | |
 | R9 | reconnect recovers via HTTP | | | |
 | R10 | logout closes session socket | | | |
-| R11 | replacement login closes old session socket | | | |
+| R11 | same-user multi-session behavior | | | |
 | R12 | protocol violations close | | | |
 | R13 | per-user connection limit enforced | | | |
 | R14 | shutdown closes sockets | | | |
@@ -540,7 +546,8 @@ The realtime E2E gate passes when:
 4. committed HTTP mutations produce expected notifications;
 5. notifications are reconciled through HTTP reads;
 6. reconnect does not imply replay and HTTP recovery works;
-7. logout, session replacement, and shutdown close sockets intentionally;
+7. logout and shutdown close sockets intentionally, while separate same-user
+   sessions remain independent;
 8. protocol violations close the socket without server panic;
 9. connection limits are enforced; and
 10. no secrets, query values, or request bodies appear in application logs.
