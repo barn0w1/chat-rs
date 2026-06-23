@@ -1,6 +1,6 @@
 # Real-Time Delivery Foundation Plan
 
-Status: implemented; local Rust verification pending
+Status: implemented and CI-verified; production-like E2E verification planned
 Date: 2026-06-23
 Baseline: `3d4374c`
 
