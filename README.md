@@ -118,12 +118,12 @@ Add WebSocket connection management, bounded outbound queues, backpressure,
 heartbeat timeouts, and event fan-out. SQLite remains the durable source of
 truth so clients can recover missed state after reconnecting.
 
-Status: the first implementation increment is implemented and awaits local
-Rust verification. It adds an authenticated, same-origin `/api/v1/ws`
-endpoint, mandatory `chat.v1` subprotocol negotiation, bounded subscriptions
-and outbound queues, small change notifications, heartbeat and session
-lifecycle handling, and bounded shutdown. HTTP remains the command and
-durable-query protocol; WebSocket does not promise durable replay.
+Status: the first implementation increment is implemented and verified by the
+workspace CI gate. It adds an authenticated, same-origin `/api/v1/ws` endpoint,
+mandatory `chat.v1` subprotocol negotiation, bounded subscriptions and
+outbound queues, small change notifications, heartbeat and session lifecycle
+handling, and bounded shutdown. HTTP remains the command and durable-query
+protocol; WebSocket does not promise durable replay.
 
 ### 6. Web client and single-binary packaging
 
@@ -183,8 +183,9 @@ contract, recovery model, resource bounds, lifecycle design, and verification
 plan are recorded in
 [`docs/realtime-delivery-plan.md`](docs/realtime-delivery-plan.md). WebSocket
 notifications are recoverable hints over SQLite-backed HTTP state, not a second
-command protocol or durable event log. Local formatting, check, Clippy, and
-test results remain the completion gate for this increment.
+command protocol or durable event log. The production-like realtime E2E plan
+and temporary browser harness are recorded in
+[`docs/realtime-e2e-verification.md`](docs/realtime-e2e-verification.md).
 
 ## Development
 
