@@ -1,7 +1,7 @@
 # Server Admission Plan
 
-Status: implemented and mechanically verified on Rust 1.96; real-provider
-verification pending  
+Status: implemented, mechanically verified on Rust 1.96, and covered by the
+production-like E2E verification on 2026-06-22  
 Date: 2026-06-22
 
 ## Purpose

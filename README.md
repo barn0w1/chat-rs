@@ -93,7 +93,8 @@ and SIGTERM shutdown pass.
 
 Define the same-origin browser authentication flow and a versioned wire
 protocol. HTTP requests will be translated into core use-case commands and
-queries. A later WebSocket channel will deliver live results and events.
+queries. Real-time delivery is handled separately by Milestone 5 as a
+notification channel, not as a second command protocol.
 
 Plan: implement this milestone in two increments. First establish a
 method-independent verified-identity boundary, an OIDC adapter, server-side
@@ -189,6 +190,10 @@ and temporary browser harness are recorded in
 [`docs/realtime-e2e-verification.md`](docs/realtime-e2e-verification.md), with
 the redacted result in
 [`docs/realtime-e2e-verification-report-2026-06-23.md`](docs/realtime-e2e-verification-report-2026-06-23.md).
+
+The documentation set is indexed in [`docs/README.md`](docs/README.md). The
+handoff for starting the next planning or implementation session is
+[`docs/project-handoff-2026-06-24.md`](docs/project-handoff-2026-06-24.md).
 
 ## Development
 

@@ -1,6 +1,7 @@
 # Pre-E2E Audit and Hardening Plan
 
-Status: implemented; local Rust verification and E2E pending
+Status: implemented, locally verified, and followed by passing production-like
+E2E verification on 2026-06-22
 Date: 2026-06-22
 Authentication decision revised: 2026-06-22
 
@@ -377,9 +378,9 @@ Do not pull these into the pre-E2E change:
 - general HTTP rate limiting and request IDs; or
 - backup, retention, and release packaging.
 
-The current in-memory `ChatEvent` results are not yet a durable delivery source.
-That is a real design decision for WebSocket work, not a defect in the current
-request/response API.
+The later Milestone 5A realtime foundation uses in-memory `ChatEvent`
+publication only as a notification source. It intentionally remains
+non-durable; SQLite-backed HTTP state is still the recovery source.
 
 ## Acceptance Criteria
 
