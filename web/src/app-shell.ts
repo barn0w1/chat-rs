@@ -5,13 +5,13 @@ const previewConversations = [
   {
     id: '42',
     title: 'General',
-    meta: 'Shell ready',
+    meta: 'API client ready',
     selected: true,
   },
   {
     id: '41',
     title: 'Operations',
-    meta: 'HTTP client next',
+    meta: 'Session store next',
     selected: false,
   },
 ]
@@ -20,14 +20,14 @@ const previewMessages = [
   {
     id: '99',
     author: 'chat-rs',
-    body: 'The production shell is in place. HTTP state will become the source of truth in the next step.',
+    body: 'Typed HTTP boundaries are ready. The next step can load the session and replace this preview state.',
     time: 'Now',
     mine: false,
   },
   {
     id: '98',
     author: 'Yuito',
-    body: 'Keep it small, fast, and explicit.',
+    body: 'Text first, light, blocky, and explicit.',
     time: 'Earlier',
     mine: true,
   },
@@ -51,7 +51,7 @@ export class ChatApp extends LitElement {
 
           <div class="status-line" role="status">
             <span class="status-dot" aria-hidden="true"></span>
-            Static shell
+            Static preview
           </div>
 
           <nav class="conversation-list" aria-label="Conversation list">
@@ -75,7 +75,7 @@ export class ChatApp extends LitElement {
           <header class="chat-header">
             <div>
               <p class="eyebrow">General</p>
-              <h2>Ready for the HTTP client</h2>
+              <h2>Ready for session loading</h2>
             </div>
             <div class="session-pill">No session loaded</div>
           </header>
@@ -100,7 +100,7 @@ export class ChatApp extends LitElement {
           <form class="composer" aria-label="Message composer">
             <textarea
               rows="2"
-              placeholder="Session and message posting arrive in the next step."
+              placeholder="Session and message posting arrive in later steps."
               disabled
             ></textarea>
             <button type="submit" disabled>Send</button>
@@ -115,9 +115,7 @@ export class ChatApp extends LitElement {
       display: block;
       min-height: 100svh;
       color: var(--text);
-      background:
-        linear-gradient(180deg, rgb(255 255 255 / 68%), rgb(255 255 255 / 0) 320px),
-        var(--bg);
+      background: var(--bg);
     }
 
     .app-shell {
@@ -126,7 +124,7 @@ export class ChatApp extends LitElement {
       min-height: 100svh;
       max-width: 1280px;
       margin: 0 auto;
-      border-inline: 1px solid var(--border);
+      border-inline: 2px solid var(--border-strong);
       background: var(--surface);
       box-shadow: var(--shadow);
     }
@@ -137,7 +135,7 @@ export class ChatApp extends LitElement {
       flex-direction: column;
       gap: var(--space-4);
       padding: var(--space-5);
-      border-right: 1px solid var(--border);
+      border-right: 2px solid var(--border-strong);
       background: var(--surface-muted);
     }
 
@@ -185,11 +183,12 @@ export class ChatApp extends LitElement {
 
     .icon-button,
     .composer button {
-      border: 1px solid var(--border-strong);
+      border: 2px solid var(--border-strong);
       border-radius: var(--radius-md);
-      color: var(--surface);
+      color: var(--surface-raised);
       background: var(--accent);
       font-weight: 700;
+      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 22%), inset 2px 2px 0 rgb(255 255 255 / 24%);
     }
 
     .icon-button {
@@ -205,6 +204,7 @@ export class ChatApp extends LitElement {
       color: var(--text-muted);
       background: var(--accent-soft);
       border-color: var(--border);
+      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 12%), inset 2px 2px 0 rgb(255 255 255 / 22%);
     }
 
     .status-line {
@@ -216,7 +216,8 @@ export class ChatApp extends LitElement {
     .status-dot {
       width: 8px;
       height: 8px;
-      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      border-radius: 0;
       background: var(--accent);
     }
 
@@ -230,7 +231,7 @@ export class ChatApp extends LitElement {
       width: 100%;
       gap: var(--space-1);
       padding: var(--space-3);
-      border: 1px solid transparent;
+      border: 2px solid transparent;
       border-radius: var(--radius-md);
       color: var(--text);
       background: transparent;
@@ -238,8 +239,9 @@ export class ChatApp extends LitElement {
     }
 
     .conversation.selected {
-      border-color: var(--border);
-      background: var(--surface);
+      border-color: var(--border-strong);
+      background: var(--surface-raised);
+      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 12%), inset 2px 2px 0 rgb(255 255 255 / 40%);
     }
 
     .conversation-title {
@@ -259,13 +261,13 @@ export class ChatApp extends LitElement {
     .chat-header {
       min-width: 0;
       padding: var(--space-5) var(--space-6);
-      border-bottom: 1px solid var(--border);
+      border-bottom: 2px solid var(--border-strong);
     }
 
     .session-pill {
       flex: 0 0 auto;
       padding: 6px 10px;
-      border: 1px solid var(--border);
+      border: 2px solid var(--border);
       border-radius: 999px;
       background: var(--surface-muted);
     }
@@ -284,9 +286,10 @@ export class ChatApp extends LitElement {
     .message {
       width: min(72ch, 86%);
       padding: var(--space-3) var(--space-4);
-      border: 1px solid var(--border);
+      border: 2px solid var(--border-strong);
       border-radius: var(--radius-md);
-      background: var(--surface-muted);
+      background: var(--surface-raised);
+      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 10%), inset 2px 2px 0 rgb(255 255 255 / 44%);
     }
 
     .message.mine {
@@ -311,7 +314,7 @@ export class ChatApp extends LitElement {
       grid-template-columns: minmax(0, 1fr) auto;
       gap: var(--space-3);
       padding: var(--space-4) var(--space-6) var(--space-5);
-      border-top: 1px solid var(--border);
+      border-top: 2px solid var(--border-strong);
       background: var(--surface);
     }
 
@@ -319,24 +322,17 @@ export class ChatApp extends LitElement {
       width: 100%;
       min-height: 48px;
       resize: vertical;
-      border: 1px solid var(--border);
+      border: 2px solid var(--border);
       border-radius: var(--radius-md);
       padding: var(--space-3);
       color: var(--text);
-      background: var(--surface-muted);
+      background: var(--surface-raised);
+      box-shadow: inset 2px 2px 0 rgb(0 0 0 / 12%);
     }
 
     .composer button {
       min-width: 84px;
       padding-inline: var(--space-4);
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :host {
-        background:
-          linear-gradient(180deg, rgb(255 255 255 / 3%), rgb(255 255 255 / 0) 320px),
-          var(--bg);
-      }
     }
 
     @media (max-width: 760px) {
@@ -348,7 +344,7 @@ export class ChatApp extends LitElement {
 
       .sidebar {
         border-right: 0;
-        border-bottom: 1px solid var(--border);
+        border-bottom: 2px solid var(--border-strong);
       }
 
       .conversation-list {
