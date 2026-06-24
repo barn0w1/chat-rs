@@ -1,6 +1,6 @@
 # Web Client Initial Implementation Plan
 
-Status: Step 1 implemented; later steps not started  
+Status: Step 3 implemented; later steps not started  
 Date: 2026-06-24  
 Baseline: `c7a3028`  
 Depends on: [`web-client-plan.md`](web-client-plan.md)
@@ -44,6 +44,15 @@ starter UI and establish the production app shape.
 Implementation update: Step 1 has replaced the starter UI with a static
 `chat-app` shell, added base/layout/token CSS, removed starter assets, and kept
 HTTP and WebSocket behavior out of scope for this step.
+
+Implementation update: Step 2 added transport DTO types, stable problem
+parsing, a same-origin typed Fetch client for the implemented HTTP chat API,
+and adjusted the static shell to a light text-first direction.
+
+Implementation update: Step 3 added session loading, same-origin login and
+admission-code login surfaces, logout, and an IRC-like message preview. The UI
+direction was corrected toward a technical web client with dense readable text
+rather than a decorative game-world theme.
 
 ## Source Contracts the Client Must Preserve
 
@@ -137,8 +146,20 @@ The direction is based on primary documentation:
   <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch>
 - MDN documents same-origin as the default Fetch credentials mode:
   <https://developer.mozilla.org/en-US/docs/Web/API/Request/credentials>
+- MDN documents HTML forms and form submission through `action` and `method`,
+  which is used for admission-code login:
+  <https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/form>
+  <https://developer.mozilla.org/en-US/docs/Learn_web_development/Extensions/Forms/Sending_and_retrieving_form_data>
 - Core Web Vitals define practical loading, interaction, and stability targets:
   <https://web.dev/articles/vitals>
+- MDN and web.dev accessibility guidance require strong text/background
+  contrast, with WCAG AA using at least 4.5:1 for normal text:
+  <https://developer.mozilla.org/en-US/docs/Web/Accessibility/Guides/Understanding_WCAG/Perceivable/Color_contrast>
+  <https://web.dev/articles/color-and-contrast-accessibility>
+- MDN and WAI guidance on live regions and text spacing inform restrained
+  status updates and line-height choices for long reading sessions:
+  <https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/status_role>
+  <https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html>
 
 ## Implementation Principles
 
