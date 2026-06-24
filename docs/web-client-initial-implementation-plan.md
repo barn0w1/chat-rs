@@ -1,6 +1,6 @@
 # Web Client Initial Implementation Plan
 
-Status: Step 3 implemented; later steps not started  
+Status: Step 4 implemented; later steps not started  
 Date: 2026-06-24  
 Baseline: `c7a3028`  
 Depends on: [`web-client-plan.md`](web-client-plan.md)
@@ -53,6 +53,13 @@ Implementation update: Step 3 added session loading, same-origin login and
 admission-code login surfaces, logout, and an IRC-like message preview. The UI
 direction was corrected toward a technical web client with dense readable text
 rather than a decorative game-world theme.
+
+Implementation update: Step 4 fixed the Step 3 Lit template build error, added
+conversation and message stores, and wired the authenticated HTTP chat workflow:
+conversation list, conversation creation, selection, latest message reads, older
+message pagination, and message posting. The app shell now uses the full
+viewport width while constraining IRC-like message row content for long-session
+readability.
 
 ## Source Contracts the Client Must Preserve
 

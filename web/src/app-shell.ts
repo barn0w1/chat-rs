@@ -1,59 +1,48 @@
 import { LitElement, css, html } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
 import './components/chat-login'
+import type { Conversation, Message, Session } from './api/types'
+import { ConversationStore } from './state/conversation-store'
+import type { ConversationSnapshot } from './state/conversation-store'
+import { MessageStore } from './state/message-store'
+import type { MessageSnapshot } from './state/message-store'
 import { SessionStore } from './state/session-store'
 import type { SessionSnapshot } from './state/session-store'
-import type { Session } from './api/types'
 
-const previewConversations = [
-  {
-    id: '42',
-    title: 'General',
-    meta: 'session loaded',
-    selected: true,
-  },
-  {
-    id: '41',
-    title: 'Operations',
-    meta: 'HTTP chat next',
-    selected: false,
-  },
-]
-
-const previewMessages = [
-  {
-    id: '99',
-    time: '16:35',
-    author: 'chat-rs',
-    body: 'Session loading is connected. Conversation and message reads come next.',
-  },
-  {
-    id: '98',
-    time: '16:34',
-    author: 'system',
-    body: 'HTTP remains the source of truth; realtime will stay a notification channel.',
-  },
-  {
-    id: '97',
-    time: '16:33',
-    author: 'ui',
-    body: 'Message display is moving toward dense IRC-style rows for long reading sessions.',
-  },
-]
+const timeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit',
+  minute: '2-digit',
+})
 
 @customElement('chat-app')
 export class ChatApp extends LitElement {
   private readonly sessionStore = new SessionStore()
+  private readonly conversationStore = new ConversationStore()
+  private readonly messageStore = new MessageStore()
+
   private unsubscribeSession?: () => void
+  private unsubscribeConversations?: () => void
+  private unsubscribeMessages?: () => void
 
   @state()
   private sessionSnapshot: SessionSnapshot = this.sessionStore.current
 
+  @state()
+  private conversationSnapshot: ConversationSnapshot = this.conversationStore.current
+
+  @state()
+  private messageSnapshot: MessageSnapshot = this.messageStore.current
+
   connectedCallback() {
     super.connectedCallback()
-    this.unsubscribeSession = this.sessionStore.subscribe(() => {
-      this.sessionSnapshot = this.sessionStore.current
+    this.unsubscribeSession = this.sessionStore.subscribe(() => this.onSessionChange())
+    this.unsubscribeConversations = this.conversationStore.subscribe(() =>
+      this.onConversationChange(),
+    )
+    this.unsubscribeMessages = this.messageStore.subscribe(() => {
+      this.messageSnapshot = this.messageStore.current
     })
+
     if (this.sessionSnapshot.status === 'idle') {
       this.sessionStore.load()
     }
@@ -61,7 +50,11 @@ export class ChatApp extends LitElement {
 
   disconnectedCallback() {
     this.unsubscribeSession?.()
+    this.unsubscribeConversations?.()
+    this.unsubscribeMessages?.()
     this.sessionStore.dispose()
+    this.conversationStore.dispose()
+    this.messageStore.dispose()
     super.disconnectedCallback()
   }
 
@@ -75,6 +68,7 @@ export class ChatApp extends LitElement {
               <p class="eyebrow">chat-rs</p>
               <h1>Conversations</h1>
             </div>
+            ${this.renderRefreshButton()}
           </header>
 
           <div class="status-line" role="status">
@@ -92,6 +86,60 @@ export class ChatApp extends LitElement {
     `
   }
 
+  private onSessionChange(): void {
+    const previousSession = this.sessionSnapshot.session
+    this.sessionSnapshot = this.sessionStore.current
+    const nextSession = this.sessionSnapshot.session
+
+    if (previousSession === undefined && nextSession !== undefined) {
+      this.conversationStore.load()
+      return
+    }
+
+    if (previousSession !== undefined && nextSession === undefined) {
+      this.conversationStore.clear()
+      this.messageStore.clear()
+    }
+  }
+
+  private onConversationChange(): void {
+    const previousSelectedId = this.conversationSnapshot.selectedId
+    this.conversationSnapshot = this.conversationStore.current
+    const selectedId = this.conversationSnapshot.selectedId
+
+    if (selectedId === undefined) {
+      this.messageStore.clear()
+      return
+    }
+
+    if (
+      selectedId !== previousSelectedId ||
+      this.messageSnapshot.conversationId !== selectedId
+    ) {
+      this.messageStore.load(selectedId)
+    }
+  }
+
+  private renderRefreshButton() {
+    const disabled =
+      this.sessionSnapshot.status === 'loading' ||
+      this.conversationSnapshot.status === 'loading' ||
+      this.messageSnapshot.status === 'loading'
+
+    return html`
+      <button
+        class="refresh-button"
+        type="button"
+        aria-label="Refresh"
+        title="Refresh"
+        ?disabled=${disabled}
+        @click=${() => this.refreshCurrentView()}
+      >
+        Refresh
+      </button>
+    `
+  }
+
   private renderSignedOutSidebar() {
     return html`
       <div class="sidebar-note">
@@ -102,32 +150,88 @@ export class ChatApp extends LitElement {
   }
 
   private renderSignedInSidebar(session: Session) {
+    const conversations = this.conversationSnapshot.conversations
     return html`
       <section class="session-card" aria-label="Current session">
         <div>
           <p class="label">Signed in as</p>
           <p class="user-name">${session.user.display_name}</p>
         </div>
-        <button type="button" @click=${this.logout} ?disabled=${this.sessionSnapshot.status === 'loading'}>
+        <button
+          type="button"
+          @click=${() => this.logout()}
+          ?disabled=${this.sessionSnapshot.status === 'loading'}
+        >
           Sign out
         </button>
       </section>
 
+      <form
+        class="create-form"
+        aria-label="Create conversation"
+        @submit=${(event: SubmitEvent) => this.createConversation(event)}
+      >
+        <label for="conversation-title">New conversation</label>
+        <div class="create-row">
+          <input
+            id="conversation-title"
+            name="title"
+            type="text"
+            autocomplete="off"
+            placeholder="Topic"
+            maxlength="120"
+            ?disabled=${this.conversationSnapshot.status === 'creating'}
+          />
+          <button
+            type="submit"
+            ?disabled=${this.conversationSnapshot.status === 'creating'}
+          >
+            Add
+          </button>
+        </div>
+      </form>
+
+      ${this.renderConversationProblem()}
+
       <nav class="conversation-list" aria-label="Conversation list">
-        ${previewConversations.map(
-          (conversation) => html`
-            <button
-              class=${conversation.selected ? 'conversation selected' : 'conversation'}
-              type="button"
-              aria-current=${conversation.selected ? 'page' : 'false'}
-              data-conversation-id=${conversation.id}
-            >
-              <span class="conversation-title">${conversation.title}</span>
-              <span class="conversation-meta">${conversation.meta}</span>
-            </button>
-          `,
-        )}
+        ${this.renderConversationList(conversations)}
       </nav>
+    `
+  }
+
+  private renderConversationList(conversations: Conversation[]) {
+    if (this.conversationSnapshot.status === 'loading' && conversations.length === 0) {
+      return html`<p class="empty-note">Loading conversations...</p>`
+    }
+
+    if (conversations.length === 0) {
+      return html`<p class="empty-note">No conversations yet. Create one to begin.</p>`
+    }
+
+    return conversations.map((conversation) => {
+      const selected = conversation.id === this.conversationSnapshot.selectedId
+      return html`
+        <button
+          class=${selected ? 'conversation selected' : 'conversation'}
+          type="button"
+          aria-current=${selected ? 'page' : 'false'}
+          data-conversation-id=${conversation.id}
+          @click=${(event: Event) => this.selectConversation(event)}
+        >
+          <span class="conversation-title">${conversation.title}</span>
+          <span class="conversation-meta">${conversation.role} / ${this.formatDate(conversation.created_at_ms)}</span>
+        </button>
+      `
+    })
+  }
+
+  private renderConversationProblem() {
+    if (this.conversationSnapshot.message === undefined) {
+      return null
+    }
+
+    return html`
+      <p class="inline-problem" role="status">${this.conversationSnapshot.message}</p>
     `
   }
 
@@ -142,7 +246,7 @@ export class ChatApp extends LitElement {
         return html`
           <chat-login
             status-message="No active session."
-            @retry-session=${this.loadSession}
+            @retry-session=${() => this.loadSession()}
           ></chat-login>
         `
       case 'error':
@@ -152,7 +256,7 @@ export class ChatApp extends LitElement {
         return html`
           <chat-login
             .statusMessage=${this.sessionSnapshot.message ?? 'Session check failed.'}
-            @retry-session=${this.loadSession}
+            @retry-session=${() => this.loadSession()}
           ></chat-login>
         `
     }
@@ -163,7 +267,7 @@ export class ChatApp extends LitElement {
       <section class="loading-panel" aria-labelledby="loading-title">
         <p class="eyebrow">session</p>
         <h2 id="loading-title">Checking session</h2>
-        <p>Reading `/api/v1/session` from the same origin.</p>
+        <p>Reading <code>/api/v1/session</code> from the same origin.</p>
       </section>
     `
   }
@@ -174,39 +278,137 @@ export class ChatApp extends LitElement {
       return this.renderLoading()
     }
 
+    const selectedConversation = this.selectedConversation()
+    if (selectedConversation === undefined) {
+      return this.renderNoConversation()
+    }
+
     return html`
       <header class="chat-header">
         <div>
-          <p class="eyebrow">General</p>
-          <h2>Session ready</h2>
+          <p class="eyebrow">conversation</p>
+          <h2>${selectedConversation.title}</h2>
         </div>
         <div class="session-pill">${session.user.display_name}</div>
       </header>
 
-      <ol class="message-log" aria-label="Message history preview">
-        ${previewMessages.map(
-          (message) => html`
-            <li class="message-row" data-message-id=${message.id}>
-              <time>${message.time}</time>
-              <span class="author">${message.author}</span>
-              <span class="message-body">${message.body}</span>
-            </li>
-          `,
-        )}
-      </ol>
+      <section class="chat-scroll" aria-label="Message history">
+        ${this.renderMessageProblem()}
+        ${this.renderOlderMessagesButton()}
+        ${this.renderMessageLog(session)}
+      </section>
 
-      <form class="composer" aria-label="Message composer preview">
+      <form
+        class="composer"
+        aria-label="Message composer"
+        @submit=${(event: SubmitEvent) => this.postMessage(event)}
+      >
+        <label class="visually-hidden" for="message-body">Message</label>
         <textarea
+          id="message-body"
+          name="body"
           rows="2"
-          placeholder="Conversation and message APIs will be wired in the next step."
-          disabled
+          placeholder="Write a message"
+          ?disabled=${this.messageSnapshot.status === 'posting'}
         ></textarea>
-        <button type="submit" disabled>Send</button>
+        <button
+          type="submit"
+          ?disabled=${this.messageSnapshot.status === 'posting'}
+        >
+          Send
+        </button>
       </form>
     `
   }
 
+  private renderNoConversation() {
+    return html`
+      <section class="empty-panel" aria-labelledby="empty-title">
+        <p class="eyebrow">conversation</p>
+        <h2 id="empty-title">No conversation selected</h2>
+        <p>Create a conversation from the sidebar to begin using the HTTP chat API.</p>
+      </section>
+    `
+  }
+
+  private renderMessageProblem() {
+    if (this.messageSnapshot.message === undefined) {
+      return null
+    }
+
+    return html`
+      <p class="inline-problem" role="status">${this.messageSnapshot.message}</p>
+    `
+  }
+
+  private renderOlderMessagesButton() {
+    if (this.messageSnapshot.nextCursor === null) {
+      return null
+    }
+
+    return html`
+      <button
+        class="older-button"
+        type="button"
+        ?disabled=${this.messageSnapshot.status === 'loading_older'}
+        @click=${() => this.messageStore.loadOlder()}
+      >
+        ${this.messageSnapshot.status === 'loading_older' ? 'Loading older messages...' : 'Load older messages'}
+      </button>
+    `
+  }
+
+  private renderMessageLog(session: Session) {
+    const messages = this.messageSnapshot.messages
+    if (this.messageSnapshot.status === 'loading') {
+      return html`<p class="empty-note">Loading messages...</p>`
+    }
+
+    if (messages.length === 0) {
+      return html`<p class="empty-note">No messages yet.</p>`
+    }
+
+    return html`
+      <ol class="message-log" aria-label="Messages">
+        ${messages.map((message) => this.renderMessageRow(message, session))}
+      </ol>
+    `
+  }
+
+  private renderMessageRow(message: Message, session: Session) {
+    return html`
+      <li class="message-row" data-message-id=${message.id}>
+        <time datetime=${new Date(message.created_at_ms).toISOString()}>
+          ${timeFormatter.format(new Date(message.created_at_ms))}
+        </time>
+        <span class="author">${this.authorLabel(message, session)}</span>
+        <span class="message-body">${message.body}</span>
+      </li>
+    `
+  }
+
+  private selectedConversation(): Conversation | undefined {
+    return this.conversationSnapshot.conversations.find(
+      (conversation) => conversation.id === this.conversationSnapshot.selectedId,
+    )
+  }
+
   private statusText(): string {
+    if (this.sessionSnapshot.status === 'authenticated') {
+      switch (this.conversationSnapshot.status) {
+        case 'idle':
+          return 'Session ready'
+        case 'loading':
+          return 'Loading conversations'
+        case 'ready':
+          return 'HTTP chat ready'
+        case 'creating':
+          return 'Creating conversation'
+        case 'error':
+          return 'Conversation request failed'
+      }
+    }
+
     switch (this.sessionSnapshot.status) {
       case 'idle':
         return 'Not checked'
@@ -221,12 +423,74 @@ export class ChatApp extends LitElement {
     }
   }
 
-  private loadSession() {
+  private refreshCurrentView(): void {
+    if (this.sessionSnapshot.session === undefined) {
+      this.sessionStore.load()
+      return
+    }
+
+    this.conversationStore.load()
+    const selectedId = this.conversationSnapshot.selectedId
+    if (selectedId !== undefined) {
+      this.messageStore.load(selectedId)
+    }
+  }
+
+  private loadSession(): void {
     this.sessionStore.load()
   }
 
-  private logout() {
+  private logout(): void {
     this.sessionStore.logout()
+  }
+
+  private createConversation(event: SubmitEvent): void {
+    event.preventDefault()
+    const form = event.currentTarget as HTMLFormElement
+    const title = formDataString(form, 'title')
+    const csrfToken = this.sessionSnapshot.session?.csrf_token
+    if (csrfToken === undefined) {
+      return
+    }
+
+    this.conversationStore.create(title, csrfToken)
+    form.reset()
+  }
+
+  private selectConversation(event: Event): void {
+    const button = event.currentTarget as HTMLButtonElement
+    const conversationId = button.dataset.conversationId
+    if (conversationId !== undefined) {
+      this.conversationStore.select(conversationId)
+    }
+  }
+
+  private postMessage(event: SubmitEvent): void {
+    event.preventDefault()
+    const form = event.currentTarget as HTMLFormElement
+    const body = formDataString(form, 'body')
+    const conversationId = this.conversationSnapshot.selectedId
+    const csrfToken = this.sessionSnapshot.session?.csrf_token
+    if (conversationId === undefined || csrfToken === undefined) {
+      return
+    }
+
+    this.messageStore.post(conversationId, body, csrfToken)
+    form.reset()
+  }
+
+  private authorLabel(message: Message, session: Session): string {
+    if (message.author_id === session.user.id) {
+      return session.user.display_name
+    }
+    return `user:${message.author_id}`
+  }
+
+  private formatDate(createdAtMs: number): string {
+    return new Date(createdAtMs).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    })
   }
 
   static styles = css`
@@ -239,13 +503,10 @@ export class ChatApp extends LitElement {
 
     .app-shell {
       display: grid;
-      grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+      width: 100%;
       min-height: 100svh;
-      max-width: 1280px;
-      margin: 0 auto;
-      border-inline: 1px solid var(--border);
+      grid-template-columns: minmax(260px, 328px) minmax(0, 1fr);
       background: var(--surface);
-      box-shadow: var(--shadow);
     }
 
     .sidebar {
@@ -324,13 +585,15 @@ export class ChatApp extends LitElement {
 
     .sidebar-note,
     .session-card,
-    .loading-panel {
+    .loading-panel,
+    .empty-panel {
       line-height: 1.55;
     }
 
     .sidebar-note,
     .session-card,
     .loading-panel,
+    .empty-panel,
     .conversation.selected {
       border: 1px solid var(--border);
       background: var(--surface-raised);
@@ -338,7 +601,8 @@ export class ChatApp extends LitElement {
 
     .sidebar-note,
     .session-card,
-    .loading-panel {
+    .loading-panel,
+    .empty-panel {
       padding: var(--space-4);
     }
 
@@ -366,14 +630,62 @@ export class ChatApp extends LitElement {
     button:disabled,
     .composer button:disabled {
       color: var(--text-muted);
-      background: var(--surface-sunken);
+      background: var(--surface-muted);
       border-color: var(--border);
       cursor: not-allowed;
     }
 
-    .conversation-list {
+    .refresh-button {
+      display: inline-grid;
+      min-height: 36px;
+      place-items: center;
+      padding: 0 var(--space-3);
+      color: var(--text);
+      background: var(--surface-raised);
+      font-size: 0.82rem;
+    }
+
+    .create-form {
       display: grid;
       gap: var(--space-2);
+    }
+
+    .create-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-2);
+    }
+
+    label {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.86rem;
+    }
+
+    input,
+    textarea {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      background: var(--surface);
+      font: inherit;
+    }
+
+    input {
+      min-width: 0;
+      min-height: 38px;
+      padding: 0 var(--space-3);
+    }
+
+    .create-row button {
+      padding-inline: var(--space-3);
+    }
+
+    .conversation-list {
+      display: grid;
+      align-content: start;
+      gap: var(--space-2);
+      overflow: auto;
     }
 
     .conversation {
@@ -388,6 +700,11 @@ export class ChatApp extends LitElement {
       text-align: left;
     }
 
+    .conversation:hover {
+      border-color: var(--border);
+      background: var(--surface-raised);
+    }
+
     .conversation-title {
       overflow: hidden;
       font-weight: 700;
@@ -398,12 +715,14 @@ export class ChatApp extends LitElement {
     .content-panel {
       display: grid;
       min-width: 0;
+      min-height: 100svh;
       grid-template-rows: auto minmax(0, 1fr) auto;
       background: var(--surface);
     }
 
     chat-login,
-    .loading-panel {
+    .loading-panel,
+    .empty-panel {
       align-self: center;
       justify-self: center;
       width: min(100% - 32px, 680px);
@@ -415,6 +734,13 @@ export class ChatApp extends LitElement {
       border-bottom: 1px solid var(--border);
     }
 
+    .chat-header h2 {
+      overflow: hidden;
+      max-width: 72ch;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .session-pill {
       flex: 0 0 auto;
       padding: 5px 9px;
@@ -423,19 +749,27 @@ export class ChatApp extends LitElement {
       background: var(--surface-muted);
     }
 
+    .chat-scroll {
+      display: grid;
+      align-content: start;
+      min-width: 0;
+      overflow: auto;
+      padding: var(--space-4) var(--space-6);
+    }
+
     .message-log {
       display: grid;
       align-content: start;
       min-width: 0;
+      max-width: 116ch;
       margin: 0;
-      padding: var(--space-4) var(--space-6);
-      overflow: auto;
+      padding: 0;
       list-style: none;
     }
 
     .message-row {
       display: grid;
-      grid-template-columns: 5.5ch 14ch minmax(0, 1fr);
+      grid-template-columns: 5.5ch minmax(9ch, 16ch) minmax(0, 88ch);
       gap: var(--space-3);
       min-width: 0;
       padding: 6px 0;
@@ -462,8 +796,9 @@ export class ChatApp extends LitElement {
 
     .composer {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 90ch) auto;
       gap: var(--space-3);
+      justify-content: start;
       padding: var(--space-4) var(--space-6) var(--space-5);
       border-top: 1px solid var(--border);
       background: var(--surface-raised);
@@ -473,11 +808,7 @@ export class ChatApp extends LitElement {
       width: 100%;
       min-height: 48px;
       resize: vertical;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
       padding: var(--space-3);
-      color: var(--text);
-      background: var(--surface);
       line-height: 1.5;
     }
 
@@ -486,11 +817,41 @@ export class ChatApp extends LitElement {
       padding-inline: var(--space-4);
     }
 
+    .empty-note,
+    .inline-problem {
+      max-width: 72ch;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .inline-problem {
+      margin-bottom: var(--space-3);
+      padding: var(--space-3);
+      border-left: 3px solid var(--danger);
+      background: var(--surface-raised);
+    }
+
+    .older-button {
+      justify-self: start;
+      margin-bottom: var(--space-3);
+      padding-inline: var(--space-4);
+      color: var(--text);
+      background: var(--surface-raised);
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+
     @media (max-width: 760px) {
       .app-shell {
         grid-template-columns: 1fr;
-        border-inline: 0;
-        box-shadow: none;
       }
 
       .sidebar {
@@ -510,7 +871,7 @@ export class ChatApp extends LitElement {
       }
 
       .chat-header,
-      .message-log,
+      .chat-scroll,
       .composer {
         padding-inline: var(--space-4);
       }
@@ -518,6 +879,10 @@ export class ChatApp extends LitElement {
       .chat-header {
         align-items: flex-start;
         flex-direction: column;
+      }
+
+      .chat-header h2 {
+        white-space: normal;
       }
 
       .message-row {
@@ -536,9 +901,18 @@ export class ChatApp extends LitElement {
         grid-template-columns: 1fr;
       }
 
+      .composer textarea {
+        width: 100%;
+      }
+
       .composer button {
         min-height: 44px;
       }
     }
   `
+}
+
+function formDataString(form: HTMLFormElement, name: string): string {
+  const value = new FormData(form).get(name)
+  return typeof value === 'string' ? value : ''
 }
