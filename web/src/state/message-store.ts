@@ -1,4 +1,4 @@
-import { listMessages, postMessage } from '../api/client'
+import { getMessage, listMessages, postMessage } from '../api/client'
 import { ApiProblemError } from '../api/problems'
 import type { ParsedProblem } from '../api/problems'
 import type { Id, Message } from '../api/types'
@@ -26,7 +26,9 @@ export class MessageStore extends EventTarget {
   }
 
   private abortController?: AbortController
+  private singleMessageController?: AbortController
   private requestId = 0
+  private singleMessageRequestId = 0
 
   get current(): MessageSnapshot {
     return this.snapshot
@@ -146,13 +148,46 @@ export class MessageStore extends EventTarget {
       })
   }
 
+  fetchOne(conversationId: Id, messageId: Id): void {
+    if (this.snapshot.conversationId !== conversationId) {
+      return
+    }
+
+    this.singleMessageController?.abort()
+    this.singleMessageRequestId += 1
+    const requestId = this.singleMessageRequestId
+    const controller = new AbortController()
+    this.singleMessageController = controller
+
+    void getMessage(conversationId, messageId, controller.signal)
+      .then((message) => {
+        if (this.isStaleSingleMessage(requestId) || this.snapshot.conversationId !== conversationId) {
+          return
+        }
+        this.set({
+          ...this.snapshot,
+          messages: mergeNewMessage(this.snapshot.messages, message),
+          message: undefined,
+          problem: undefined,
+        })
+      })
+      .catch((error: unknown) => {
+        if (this.isStaleSingleMessage(requestId) || isAbortError(error)) {
+          return
+        }
+        this.set(realtimeFetchFailureSnapshot(error, this.snapshot))
+      })
+  }
+
   clear(): void {
     this.nextRequest()
+    this.nextSingleMessageRequest()
     this.set({ status: 'idle', messages: [], nextCursor: null })
   }
 
   dispose(): void {
     this.abortController?.abort()
+    this.singleMessageController?.abort()
   }
 
   private nextRequest(): number {
@@ -163,6 +198,16 @@ export class MessageStore extends EventTarget {
 
   private isStale(requestId: number): boolean {
     return requestId !== this.requestId
+  }
+
+  private nextSingleMessageRequest(): number {
+    this.singleMessageController?.abort()
+    this.singleMessageRequestId += 1
+    return this.singleMessageRequestId
+  }
+
+  private isStaleSingleMessage(requestId: number): boolean {
+    return requestId !== this.singleMessageRequestId
   }
 
   private set(snapshot: MessageSnapshot): void {
@@ -216,6 +261,21 @@ function postFailureSnapshot(error: unknown, current: MessageSnapshot): MessageS
     ...current,
     status: 'unknown',
     message: 'The message result is unknown. Refresh before sending it again.',
+  }
+}
+
+function realtimeFetchFailureSnapshot(error: unknown, current: MessageSnapshot): MessageSnapshot {
+  if (error instanceof ApiProblemError) {
+    return {
+      ...current,
+      problem: error.problem,
+      message: `Realtime message refresh failed: ${error.problem.title}`,
+    }
+  }
+
+  return {
+    ...current,
+    message: 'Realtime message refresh failed. Refresh to retry.',
   }
 }
 
