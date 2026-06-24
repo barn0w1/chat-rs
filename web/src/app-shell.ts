@@ -1,17 +1,21 @@
 import { LitElement, css, html } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { customElement, state } from 'lit/decorators.js'
+import './components/chat-login'
+import { SessionStore } from './state/session-store'
+import type { SessionSnapshot } from './state/session-store'
+import type { Session } from './api/types'
 
 const previewConversations = [
   {
     id: '42',
     title: 'General',
-    meta: 'API client ready',
+    meta: 'session loaded',
     selected: true,
   },
   {
     id: '41',
     title: 'Operations',
-    meta: 'Session store next',
+    meta: 'HTTP chat next',
     selected: false,
   },
 ]
@@ -19,95 +23,210 @@ const previewConversations = [
 const previewMessages = [
   {
     id: '99',
+    time: '16:35',
     author: 'chat-rs',
-    body: 'Typed HTTP boundaries are ready. The next step can load the session and replace this preview state.',
-    time: 'Now',
-    mine: false,
+    body: 'Session loading is connected. Conversation and message reads come next.',
   },
   {
     id: '98',
-    author: 'Yuito',
-    body: 'Text first, light, blocky, and explicit.',
-    time: 'Earlier',
-    mine: true,
+    time: '16:34',
+    author: 'system',
+    body: 'HTTP remains the source of truth; realtime will stay a notification channel.',
+  },
+  {
+    id: '97',
+    time: '16:33',
+    author: 'ui',
+    body: 'Message display is moving toward dense IRC-style rows for long reading sessions.',
   },
 ]
 
 @customElement('chat-app')
 export class ChatApp extends LitElement {
+  private readonly sessionStore = new SessionStore()
+  private unsubscribeSession?: () => void
+
+  @state()
+  private sessionSnapshot: SessionSnapshot = this.sessionStore.current
+
+  connectedCallback() {
+    super.connectedCallback()
+    this.unsubscribeSession = this.sessionStore.subscribe(() => {
+      this.sessionSnapshot = this.sessionStore.current
+    })
+    if (this.sessionSnapshot.status === 'idle') {
+      this.sessionStore.load()
+    }
+  }
+
+  disconnectedCallback() {
+    this.unsubscribeSession?.()
+    this.sessionStore.dispose()
+    super.disconnectedCallback()
+  }
+
   render() {
+    const session = this.sessionSnapshot.session
     return html`
       <main class="app-shell" aria-label="chat-rs web client">
-        <aside class="sidebar" aria-label="Conversations">
+        <aside class="sidebar" aria-label="Conversations and session">
           <header class="sidebar-header">
             <div>
               <p class="eyebrow">chat-rs</p>
               <h1>Conversations</h1>
             </div>
-            <button class="icon-button" type="button" aria-label="Create conversation" disabled>
-              +
-            </button>
           </header>
 
           <div class="status-line" role="status">
             <span class="status-dot" aria-hidden="true"></span>
-            Static preview
+            ${this.statusText()}
           </div>
 
-          <nav class="conversation-list" aria-label="Conversation list">
-            ${previewConversations.map(
-              (conversation) => html`
-                <button
-                  class=${conversation.selected ? 'conversation selected' : 'conversation'}
-                  type="button"
-                  aria-current=${conversation.selected ? 'page' : 'false'}
-                  data-conversation-id=${conversation.id}
-                >
-                  <span class="conversation-title">${conversation.title}</span>
-                  <span class="conversation-meta">${conversation.meta}</span>
-                </button>
-              `,
-            )}
-          </nav>
+          ${session === undefined ? this.renderSignedOutSidebar() : this.renderSignedInSidebar(session)}
         </aside>
 
-        <section class="chat-panel" aria-label="Selected conversation">
-          <header class="chat-header">
-            <div>
-              <p class="eyebrow">General</p>
-              <h2>Ready for session loading</h2>
-            </div>
-            <div class="session-pill">No session loaded</div>
-          </header>
-
-          <ol class="message-list" aria-label="Message history">
-            ${previewMessages.map(
-              (message) => html`
-                <li
-                  class=${message.mine ? 'message mine' : 'message'}
-                  data-message-id=${message.id}
-                >
-                  <div class="message-meta">
-                    <span>${message.author}</span>
-                    <time>${message.time}</time>
-                  </div>
-                  <p>${message.body}</p>
-                </li>
-              `,
-            )}
-          </ol>
-
-          <form class="composer" aria-label="Message composer">
-            <textarea
-              rows="2"
-              placeholder="Session and message posting arrive in later steps."
-              disabled
-            ></textarea>
-            <button type="submit" disabled>Send</button>
-          </form>
+        <section class="content-panel" aria-label="Main content">
+          ${this.renderContent()}
         </section>
       </main>
     `
+  }
+
+  private renderSignedOutSidebar() {
+    return html`
+      <div class="sidebar-note">
+        Sign in to load your local server session. Private chat content stays out
+        of browser storage.
+      </div>
+    `
+  }
+
+  private renderSignedInSidebar(session: Session) {
+    return html`
+      <section class="session-card" aria-label="Current session">
+        <div>
+          <p class="label">Signed in as</p>
+          <p class="user-name">${session.user.display_name}</p>
+        </div>
+        <button type="button" @click=${this.logout} ?disabled=${this.sessionSnapshot.status === 'loading'}>
+          Sign out
+        </button>
+      </section>
+
+      <nav class="conversation-list" aria-label="Conversation list">
+        ${previewConversations.map(
+          (conversation) => html`
+            <button
+              class=${conversation.selected ? 'conversation selected' : 'conversation'}
+              type="button"
+              aria-current=${conversation.selected ? 'page' : 'false'}
+              data-conversation-id=${conversation.id}
+            >
+              <span class="conversation-title">${conversation.title}</span>
+              <span class="conversation-meta">${conversation.meta}</span>
+            </button>
+          `,
+        )}
+      </nav>
+    `
+  }
+
+  private renderContent() {
+    switch (this.sessionSnapshot.status) {
+      case 'idle':
+      case 'loading':
+        return this.renderLoading()
+      case 'authenticated':
+        return this.renderAuthenticated()
+      case 'unauthenticated':
+        return html`
+          <chat-login
+            status-message="No active session."
+            @retry-session=${this.loadSession}
+          ></chat-login>
+        `
+      case 'error':
+        if (this.sessionSnapshot.session !== undefined) {
+          return this.renderAuthenticated()
+        }
+        return html`
+          <chat-login
+            .statusMessage=${this.sessionSnapshot.message ?? 'Session check failed.'}
+            @retry-session=${this.loadSession}
+          ></chat-login>
+        `
+    }
+  }
+
+  private renderLoading() {
+    return html`
+      <section class="loading-panel" aria-labelledby="loading-title">
+        <p class="eyebrow">session</p>
+        <h2 id="loading-title">Checking session</h2>
+        <p>Reading `/api/v1/session` from the same origin.</p>
+      </section>
+    `
+  }
+
+  private renderAuthenticated() {
+    const session = this.sessionSnapshot.session
+    if (session === undefined) {
+      return this.renderLoading()
+    }
+
+    return html`
+      <header class="chat-header">
+        <div>
+          <p class="eyebrow">General</p>
+          <h2>Session ready</h2>
+        </div>
+        <div class="session-pill">${session.user.display_name}</div>
+      </header>
+
+      <ol class="message-log" aria-label="Message history preview">
+        ${previewMessages.map(
+          (message) => html`
+            <li class="message-row" data-message-id=${message.id}>
+              <time>${message.time}</time>
+              <span class="author">${message.author}</span>
+              <span class="message-body">${message.body}</span>
+            </li>
+          `,
+        )}
+      </ol>
+
+      <form class="composer" aria-label="Message composer preview">
+        <textarea
+          rows="2"
+          placeholder="Conversation and message APIs will be wired in the next step."
+          disabled
+        ></textarea>
+        <button type="submit" disabled>Send</button>
+      </form>
+    `
+  }
+
+  private statusText(): string {
+    switch (this.sessionSnapshot.status) {
+      case 'idle':
+        return 'Not checked'
+      case 'loading':
+        return 'Checking session'
+      case 'authenticated':
+        return 'Session ready'
+      case 'unauthenticated':
+        return 'Signed out'
+      case 'error':
+        return 'Session check failed'
+    }
+  }
+
+  private loadSession() {
+    this.sessionStore.load()
+  }
+
+  private logout() {
+    this.sessionStore.logout()
   }
 
   static styles = css`
@@ -124,7 +243,7 @@ export class ChatApp extends LitElement {
       min-height: 100svh;
       max-width: 1280px;
       margin: 0 auto;
-      border-inline: 2px solid var(--border-strong);
+      border-inline: 1px solid var(--border);
       background: var(--surface);
       box-shadow: var(--shadow);
     }
@@ -135,7 +254,7 @@ export class ChatApp extends LitElement {
       flex-direction: column;
       gap: var(--space-4);
       padding: var(--space-5);
-      border-right: 2px solid var(--border-strong);
+      border-right: 1px solid var(--border);
       background: var(--surface-muted);
     }
 
@@ -155,56 +274,38 @@ export class ChatApp extends LitElement {
 
     h1 {
       margin-top: var(--space-1);
-      font-size: 1.45rem;
-      line-height: 1.15;
+      font-size: 1.35rem;
+      line-height: 1.2;
     }
 
     h2 {
       margin-top: var(--space-1);
-      font-size: 1.25rem;
-      line-height: 1.2;
+      font-size: 1.12rem;
+      line-height: 1.3;
     }
 
     .eyebrow,
     .conversation-meta,
-    .message-meta,
+    .label,
     .session-pill,
-    .status-line {
+    .status-line,
+    time {
       color: var(--text-muted);
       font-size: 0.82rem;
-      line-height: 1.3;
+      line-height: 1.35;
     }
 
-    .eyebrow {
-      font-weight: 700;
-      letter-spacing: 0.08em;
+    .eyebrow,
+    .label,
+    time,
+    .author {
+      font-family: var(--font-mono);
+    }
+
+    .eyebrow,
+    .label {
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-    }
-
-    .icon-button,
-    .composer button {
-      border: 2px solid var(--border-strong);
-      border-radius: var(--radius-md);
-      color: var(--surface-raised);
-      background: var(--accent);
-      font-weight: 700;
-      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 22%), inset 2px 2px 0 rgb(255 255 255 / 24%);
-    }
-
-    .icon-button {
-      width: 36px;
-      height: 36px;
-      flex: 0 0 auto;
-      font-size: 1.3rem;
-      line-height: 1;
-    }
-
-    .icon-button:disabled,
-    .composer button:disabled {
-      color: var(--text-muted);
-      background: var(--accent-soft);
-      border-color: var(--border);
-      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 12%), inset 2px 2px 0 rgb(255 255 255 / 22%);
     }
 
     .status-line {
@@ -217,8 +318,57 @@ export class ChatApp extends LitElement {
       width: 8px;
       height: 8px;
       border: 1px solid var(--border-strong);
-      border-radius: 0;
+      border-radius: 999px;
       background: var(--accent);
+    }
+
+    .sidebar-note,
+    .session-card,
+    .loading-panel {
+      line-height: 1.55;
+    }
+
+    .sidebar-note,
+    .session-card,
+    .loading-panel,
+    .conversation.selected {
+      border: 1px solid var(--border);
+      background: var(--surface-raised);
+    }
+
+    .sidebar-note,
+    .session-card,
+    .loading-panel {
+      padding: var(--space-4);
+    }
+
+    .session-card {
+      display: grid;
+      gap: var(--space-3);
+    }
+
+    .user-name {
+      margin-top: var(--space-1);
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    button,
+    .composer button {
+      min-height: 38px;
+      border: 1px solid var(--border-strong);
+      color: var(--surface-raised);
+      background: var(--accent);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:disabled,
+    .composer button:disabled {
+      color: var(--text-muted);
+      background: var(--surface-sunken);
+      border-color: var(--border);
+      cursor: not-allowed;
     }
 
     .conversation-list {
@@ -231,17 +381,11 @@ export class ChatApp extends LitElement {
       width: 100%;
       gap: var(--space-1);
       padding: var(--space-3);
-      border: 2px solid transparent;
+      border: 1px solid transparent;
       border-radius: var(--radius-md);
       color: var(--text);
       background: transparent;
       text-align: left;
-    }
-
-    .conversation.selected {
-      border-color: var(--border-strong);
-      background: var(--surface-raised);
-      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 12%), inset 2px 2px 0 rgb(255 255 255 / 40%);
     }
 
     .conversation-title {
@@ -251,62 +395,69 @@ export class ChatApp extends LitElement {
       white-space: nowrap;
     }
 
-    .chat-panel {
+    .content-panel {
       display: grid;
       min-width: 0;
       grid-template-rows: auto minmax(0, 1fr) auto;
       background: var(--surface);
     }
 
+    chat-login,
+    .loading-panel {
+      align-self: center;
+      justify-self: center;
+      width: min(100% - 32px, 680px);
+    }
+
     .chat-header {
       min-width: 0;
       padding: var(--space-5) var(--space-6);
-      border-bottom: 2px solid var(--border-strong);
+      border-bottom: 1px solid var(--border);
     }
 
     .session-pill {
       flex: 0 0 auto;
-      padding: 6px 10px;
-      border: 2px solid var(--border);
+      padding: 5px 9px;
+      border: 1px solid var(--border);
       border-radius: 999px;
       background: var(--surface-muted);
     }
 
-    .message-list {
-      display: flex;
+    .message-log {
+      display: grid;
+      align-content: start;
       min-width: 0;
-      flex-direction: column;
-      gap: var(--space-3);
       margin: 0;
-      padding: var(--space-6);
+      padding: var(--space-4) var(--space-6);
       overflow: auto;
       list-style: none;
     }
 
-    .message {
-      width: min(72ch, 86%);
-      padding: var(--space-3) var(--space-4);
-      border: 2px solid var(--border-strong);
-      border-radius: var(--radius-md);
-      background: var(--surface-raised);
-      box-shadow: inset -2px -2px 0 rgb(0 0 0 / 10%), inset 2px 2px 0 rgb(255 255 255 / 44%);
-    }
-
-    .message.mine {
-      align-self: flex-end;
-      background: var(--accent-soft);
-    }
-
-    .message-meta {
-      display: flex;
-      justify-content: space-between;
+    .message-row {
+      display: grid;
+      grid-template-columns: 5.5ch 14ch minmax(0, 1fr);
       gap: var(--space-3);
-      margin-bottom: var(--space-2);
-      font-family: var(--font-mono);
+      min-width: 0;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      line-height: 1.55;
     }
 
-    .message p {
-      line-height: 1.5;
+    .message-row:last-child {
+      border-bottom: 0;
+    }
+
+    .author {
+      color: var(--accent-strong);
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .message-body {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .composer {
@@ -314,20 +465,20 @@ export class ChatApp extends LitElement {
       grid-template-columns: minmax(0, 1fr) auto;
       gap: var(--space-3);
       padding: var(--space-4) var(--space-6) var(--space-5);
-      border-top: 2px solid var(--border-strong);
-      background: var(--surface);
+      border-top: 1px solid var(--border);
+      background: var(--surface-raised);
     }
 
     .composer textarea {
       width: 100%;
       min-height: 48px;
       resize: vertical;
-      border: 2px solid var(--border);
+      border: 1px solid var(--border);
       border-radius: var(--radius-md);
       padding: var(--space-3);
       color: var(--text);
-      background: var(--surface-raised);
-      box-shadow: inset 2px 2px 0 rgb(0 0 0 / 12%);
+      background: var(--surface);
+      line-height: 1.5;
     }
 
     .composer button {
@@ -344,7 +495,7 @@ export class ChatApp extends LitElement {
 
       .sidebar {
         border-right: 0;
-        border-bottom: 2px solid var(--border-strong);
+        border-bottom: 1px solid var(--border);
       }
 
       .conversation-list {
@@ -359,7 +510,7 @@ export class ChatApp extends LitElement {
       }
 
       .chat-header,
-      .message-list,
+      .message-log,
       .composer {
         padding-inline: var(--space-4);
       }
@@ -369,8 +520,16 @@ export class ChatApp extends LitElement {
         flex-direction: column;
       }
 
-      .message {
-        width: 100%;
+      .message-row {
+        grid-template-columns: 5.5ch minmax(0, 1fr);
+      }
+
+      .author {
+        grid-column: 2;
+      }
+
+      .message-body {
+        grid-column: 2;
       }
 
       .composer {

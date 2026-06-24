@@ -7,23 +7,23 @@
   --font-mono:
     "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace;
 
-  --bg: #c9bea8;
-  --surface: #f8efd9;
-  --surface-raised: #fff7e4;
-  --surface-muted: #ded1b8;
-  --surface-sunken: #b9ad98;
-  --text: #211a13;
-  --text-muted: #54493e;
-  --border: #857865;
-  --border-strong: #2b241c;
-  --accent: #6a5b49;
-  --accent-strong: #352b22;
-  --accent-soft: #d0c3aa;
-  --danger: #8f2f2b;
-  --shadow: 6px 6px 0 rgb(43 36 28 / 22%);
+  --bg: #eeece5;
+  --surface: #f8f6ef;
+  --surface-raised: #fffdf6;
+  --surface-muted: #e4e1d8;
+  --surface-sunken: #d6d2c6;
+  --text: #202124;
+  --text-muted: #5f625f;
+  --border: #c4c0b6;
+  --border-strong: #8f8a80;
+  --accent: #2f4f6f;
+  --accent-strong: #21384f;
+  --accent-soft: #dce7f2;
+  --danger: #9a3632;
+  --shadow: 0 1px 0 rgb(32 33 36 / 8%);
 
-  --radius-sm: 0;
-  --radius-md: 2px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
