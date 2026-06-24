@@ -1,6 +1,7 @@
 # Authenticated HTTP Chat Mutation Plan
 
-Status: implemented for Milestone 4B.2; local mechanical verification pending
+Status: implemented for Milestone 4B.2, mechanically verified, and covered by
+the production-like E2E verification on 2026-06-22
 Date: 2026-06-21
 Baseline: `50486b0`
 
@@ -486,7 +487,8 @@ resources without exposing domain or storage internals.
 - run formatting, compilation, locked Clippy, workspace tests, and release
   build on Rust 1.96
 - update README status after mechanical verification
-- keep real-provider, reverse-proxy, and browser checks as operational follow-up
+- cover the real-provider, reverse-proxy, and browser path in the
+  production-like E2E verification
 
 Completion: 4B.2 is independently reviewable and mergeable before reliability
 or real-time work.

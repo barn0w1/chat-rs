@@ -1,7 +1,7 @@
 # Authentication and Protocol Plan
 
-Status: Milestone 4A implemented and mechanically verified on Rust 1.96;
-real-provider and browser integration verification remains
+Status: Milestone 4A implemented, mechanically verified on Rust 1.96, and
+covered by the production-like E2E verification on 2026-06-22
 Date: 2026-06-21
 
 ## Scope Decision
@@ -11,12 +11,13 @@ Milestone 4 is split into two reviewable increments.
 - **4A, implemented:** verified identity boundary, OIDC adapter,
   account resolution, server-side sessions, cookie and CSRF handling, and the
   versioned HTTP protocol foundation.
-- **4B, subsequent implementation:** authenticated HTTP routes that translate
-  chat commands and queries into the existing `chat` use cases.
+- **4B, implemented:** authenticated HTTP routes translate chat commands and
+  queries into the existing `chat` use cases.
 
-This document fixes the implementation contract for 4A. It records the 4B wire
-conventions, but 4B should receive a separate endpoint-by-endpoint review after
-4A is verified. WebSocket connection management remains Milestone 5.
+This document fixed the implementation contract for 4A. It also records the
+wire conventions that were later implemented by the 4B endpoint increments.
+WebSocket connection management is documented separately in the Milestone 5A
+realtime plan.
 
 This split is intentional. Implementing external identity verification,
 sessions, every chat route, and WebSocket delivery together would make security
