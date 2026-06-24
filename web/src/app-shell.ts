@@ -1,7 +1,11 @@
 import { LitElement, css, html } from 'lit'
 import { customElement, state } from 'lit/decorators.js'
+import './components/connection-status'
 import './components/chat-login'
 import type { Conversation, Message, Session } from './api/types'
+import { RealtimeSocket } from './realtime/socket'
+import type { RealtimeServerEvent } from './realtime/protocol'
+import type { RealtimeSnapshot } from './realtime/socket'
 import { ConversationStore } from './state/conversation-store'
 import type { ConversationSnapshot } from './state/conversation-store'
 import { MessageStore } from './state/message-store'
@@ -19,10 +23,13 @@ export class ChatApp extends LitElement {
   private readonly sessionStore = new SessionStore()
   private readonly conversationStore = new ConversationStore()
   private readonly messageStore = new MessageStore()
+  private readonly realtimeSocket = new RealtimeSocket()
 
   private unsubscribeSession?: () => void
   private unsubscribeConversations?: () => void
   private unsubscribeMessages?: () => void
+  private unsubscribeRealtime?: () => void
+  private unsubscribeRealtimeEvents?: () => void
 
   @state()
   private sessionSnapshot: SessionSnapshot = this.sessionStore.current
@@ -33,6 +40,9 @@ export class ChatApp extends LitElement {
   @state()
   private messageSnapshot: MessageSnapshot = this.messageStore.current
 
+  @state()
+  private realtimeSnapshot: RealtimeSnapshot = this.realtimeSocket.current
+
   connectedCallback() {
     super.connectedCallback()
     this.unsubscribeSession = this.sessionStore.subscribe(() => this.onSessionChange())
@@ -42,6 +52,12 @@ export class ChatApp extends LitElement {
     this.unsubscribeMessages = this.messageStore.subscribe(() => {
       this.messageSnapshot = this.messageStore.current
     })
+    this.unsubscribeRealtime = this.realtimeSocket.subscribe(() => {
+      this.realtimeSnapshot = this.realtimeSocket.current
+    })
+    this.unsubscribeRealtimeEvents = this.realtimeSocket.subscribeEvents((event) =>
+      this.handleRealtimeEvent(event),
+    )
 
     if (this.sessionSnapshot.status === 'idle') {
       this.sessionStore.load()
@@ -52,9 +68,12 @@ export class ChatApp extends LitElement {
     this.unsubscribeSession?.()
     this.unsubscribeConversations?.()
     this.unsubscribeMessages?.()
+    this.unsubscribeRealtime?.()
+    this.unsubscribeRealtimeEvents?.()
     this.sessionStore.dispose()
     this.conversationStore.dispose()
     this.messageStore.dispose()
+    this.realtimeSocket.stop()
     super.disconnectedCallback()
   }
 
@@ -75,6 +94,10 @@ export class ChatApp extends LitElement {
             <span class="status-dot" aria-hidden="true"></span>
             ${this.statusText()}
           </div>
+          <connection-status
+            .status=${this.realtimeSnapshot.status}
+            .message=${this.realtimeStatusMessage()}
+          ></connection-status>
 
           ${session === undefined ? this.renderSignedOutSidebar() : this.renderSignedInSidebar(session)}
         </aside>
@@ -93,12 +116,14 @@ export class ChatApp extends LitElement {
 
     if (previousSession === undefined && nextSession !== undefined) {
       this.conversationStore.load()
+      this.realtimeSocket.start()
       return
     }
 
     if (previousSession !== undefined && nextSession === undefined) {
       this.conversationStore.clear()
       this.messageStore.clear()
+      this.realtimeSocket.stop()
     }
   }
 
@@ -109,8 +134,11 @@ export class ChatApp extends LitElement {
 
     if (selectedId === undefined) {
       this.messageStore.clear()
+      this.realtimeSocket.setSubscription(undefined)
       return
     }
+
+    this.realtimeSocket.setSubscription(selectedId)
 
     if (
       selectedId !== previousSelectedId ||
@@ -414,12 +442,49 @@ export class ChatApp extends LitElement {
         return 'Not checked'
       case 'loading':
         return 'Checking session'
-      case 'authenticated':
-        return 'Session ready'
       case 'unauthenticated':
         return 'Signed out'
       case 'error':
         return 'Session check failed'
+    }
+  }
+
+  private realtimeStatusMessage(): string {
+    if (this.realtimeSnapshot.message !== undefined) {
+      return this.realtimeSnapshot.message
+    }
+    if (this.realtimeSnapshot.subscribedId !== undefined) {
+      return `Realtime subscribed to ${this.realtimeSnapshot.subscribedId}`
+    }
+    return ''
+  }
+
+  private handleRealtimeEvent(event: RealtimeServerEvent): void {
+    switch (event.type) {
+      case 'ready':
+        break
+      case 'subscribed':
+        if (
+          event.conversation_id === this.conversationSnapshot.selectedId &&
+          this.messageSnapshot.status !== 'posting'
+        ) {
+          this.messageStore.load(event.conversation_id)
+        }
+        break
+      case 'unsubscribed':
+        break
+      case 'subscription_rejected':
+        break
+      case 'conversation_created':
+        if (this.conversationSnapshot.status !== 'creating') {
+          this.conversationStore.load()
+        }
+        break
+      case 'message_posted':
+        if (event.conversation_id === this.conversationSnapshot.selectedId) {
+          this.messageStore.fetchOne(event.conversation_id, event.message_id)
+        }
+        break
     }
   }
 
