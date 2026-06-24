@@ -4,10 +4,11 @@ Updated: 2026-06-24
 
 ## Current Objective
 
-Implement the third web-client step from
-`docs/web-client-initial-implementation-plan.md`: add session loading, login
-surface, and logout. Also correct the visual direction toward a technical,
-text-first, light IRC-like client instead of a world-themed UI.
+Implement the fourth web-client step from
+`docs/web-client-initial-implementation-plan.md`: fix the Lit template build
+error from Step 3, add the authenticated HTTP chat MVP, and revise the layout
+so the application shell uses the full viewport width while message rows remain
+comfortable to read.
 
 ## Step 1 Checklist
 
@@ -41,14 +42,30 @@ text-first, light IRC-like client instead of a world-themed UI.
 - [x] Verify static references and changed file set.
 - [x] Archive the full codebase for download.
 
+## Step 4 Checklist
+
+- [x] Fix the raw-backtick Lit template build error in `app-shell`.
+- [x] Add `web/src/state/conversation-store.ts`.
+- [x] Add `web/src/state/message-store.ts`.
+- [x] Wire authenticated conversation reads, creation, selection, and message
+      reads/posts into `chat-app`.
+- [x] Keep POST requests manual-only with no automatic retry.
+- [x] Revise the shell to full viewport width while keeping IRC-like message
+      rows readable.
+- [x] Update the implementation plan status.
+- [x] Verify static references and changed file set.
+- [x] Archive the full codebase for download.
+
 ## Notes
 
 - Keep runtime dependencies unchanged.
-- Step 3 may call only `/api/v1/session` and `/api/v1/session` DELETE from the
-  app shell. Conversation/message API calls begin in the next implementation
-  step.
+- Step 4 may call authenticated conversation and message HTTP APIs from the app
+  shell, using the in-memory session CSRF token for unsafe requests.
 - Keep all IDs as strings across the browser boundary.
 - Do not automatically retry POST requests.
 - Design direction: technical, text-first, readable for long sessions,
   off-white light theme, restrained contrast, IRC-like message rows. Avoid
   building a decorative game world.
+- Step 4 build note: attempted to install and build in a temporary copy, but
+  dependency fetches from npm registry returned 403 in this environment. The
+  workspace itself was left without `node_modules` or `dist`.
